@@ -66,7 +66,7 @@ int main() {
 		goto err_graphics_init;
 	}
 
-	if (!application::initialize()) {
+	if (!application::Initialize()) {
 		std::cerr << "Failed to initialize application\n";
 		status = EXIT_FAILURE;
 		goto err_application_init;
@@ -79,15 +79,15 @@ int main() {
 		ImGui_ImplGlfw_NewFrame();
 
 		ImGui::NewFrame();
-		application::update(time);
+		application::Update(time);
 		ImGui::Render();
 
 		graphics::internal::FrameData fd = graphics::internal::prepare();
-		application::render(fd);
+		application::Render(fd);
 		graphics::internal::submitAndPresent();
 	}
 
-	application::shutdown();
+	application::Shutdown();
 err_application_init:
 	graphics::internal::shutdown();
 err_graphics_init:

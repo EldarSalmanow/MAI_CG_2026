@@ -4,10 +4,16 @@
 
 namespace application {
 
-bool initialize();
-void shutdown();
+    auto Initialize() -> bool;
 
-void update(double time);
-void render(const graphics::internal::FrameData& fd);
+    auto Shutdown() -> void;
+
+    auto Update(
+        double time
+    ) -> void;
+
+    auto Render(
+        const graphics::internal::FrameData &frame_data
+    ) -> void;
 
 } // namespace application
