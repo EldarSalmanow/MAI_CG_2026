@@ -1,7 +1,7 @@
-#include <cstdint>
-#include <climits>
-
+#include <cstdlib>
+#include <exception>
 #include <iostream>
+#include <stdexcept>
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -9,68 +9,84 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 
-#include "graphics_internal.hpp"
 #include "application.hpp"
+#include "graphics_internal.hpp"
 
 namespace {
 
 constexpr int32_t default_window_width = 1280;
 constexpr int32_t default_window_height = 720;
 
-constexpr char default_window_title[] = "Vulkan Starter App";
+constexpr char default_window_title[] = "Computer Graphics - Laboratory Work 1";
 
-GLFWwindow* glfw_window;
+GLFWwindow *glfw_window;
 
 } // namespace
 
 int main() {
 	int status = EXIT_SUCCESS;
 
-	if (!glfwInit()) {
-		std::cerr << "Failed to initialize GLFW\n";
-		return EXIT_FAILURE;
-	}
+    if (!glfwInit()) {
+        std::cerr << "[ERROR] Failed to initialize GLFW!" << std::endl;
 
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        return EXIT_FAILURE;
+    }
 
-	glfw_window = glfwCreateWindow(default_window_width, default_window_height,
-	                               default_window_title, nullptr, nullptr);
-	if (glfw_window == nullptr) {
-		status = EXIT_FAILURE;
-		goto err_null_window;
-	}
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-	glfwSetFramebufferSizeCallback(glfw_window, [](GLFWwindow*, int width, int height){
-		if (width == 0 || height == 0) {
-			return;
-		}
+    glfw_window = glfwCreateWindow(
+        default_window_width,
+        default_window_height,
+        default_window_title,
+        nullptr,
+        nullptr
+    );
 
-		graphics::internal::resize(width, height);
-	});
+    if (glfw_window == nullptr) {
+        status = EXIT_FAILURE;
 
-	if (ImGui::CreateContext() == nullptr) {
-		std::cerr << "Failed to create ImGUI context\n";
-		status = EXIT_FAILURE;
-		goto err_imgui_init;
-	}
+        goto err_null_window;
+    }
 
-	if (!ImGui_ImplGlfw_InitForVulkan(glfw_window, true)) {
-		std::cerr << "Failed to initialize ImGUI GLFW backend for Vulkan renderer\n";
-		status = EXIT_FAILURE;
-		goto err_imgui_glfw_init;
-	}
+    glfwSetFramebufferSizeCallback(glfw_window, [](GLFWwindow *, int width, int height) {
+        if (width == 0 || height == 0) {
+            return;
+        }
 
-	if (!graphics::internal::initialize(glfw_window)) {
-		std::cerr << "Failed to initialize graphics\n";
-		status = EXIT_FAILURE;
-		goto err_graphics_init;
-	}
+        graphics::internal::resize(width, height);
+    });
 
-	if (!application::Initialize()) {
-		std::cerr << "Failed to initialize application\n";
-		status = EXIT_FAILURE;
-		goto err_application_init;
-	}
+    if (ImGui::CreateContext() == nullptr) {
+        std::cerr << "[ERROR] Failed to create ImGUI context!" << std::endl;
+
+        status = EXIT_FAILURE;
+
+        goto err_imgui_init;
+    }
+
+    if (!ImGui_ImplGlfw_InitForVulkan(glfw_window, true)) {
+        std::cerr << "[ERROR] Failed to initialize ImGUI GLFW backend for Vulkan renderer!" << std::endl;
+
+        status = EXIT_FAILURE;
+
+        goto err_imgui_glfw_init;
+    }
+
+    if (!graphics::internal::initialize(glfw_window)) {
+        std::cerr << "[ERROR] Failed to initialize graphics!" << std::endl;
+
+        status = EXIT_FAILURE;
+
+        goto err_graphics_init;
+    }
+
+    if (!application::Initialize()) {
+        std::cerr << "[ERROR] Failed to initialize application" << std::endl;
+
+        status = EXIT_FAILURE;
+
+        goto err_application_init;
+    }
 
 	while (!glfwWindowShouldClose(glfw_window)) {
 		const double time = glfwGetTime();
@@ -87,7 +103,34 @@ int main() {
 		graphics::internal::submitAndPresent();
 	}
 
-	application::Shutdown();
+    // try {
+    //     while (!glfwWindowShouldClose(glfw_window)) {
+    //         glfwPollEvents();
+    //         int width = 0, height = 0;
+    //         glfwGetFramebufferSize(glfw_window, &width, &height);
+    //         if (width == 0 || height == 0) {
+    //             glfwWaitEvents();
+    //             continue;
+    //         }
+    //         // Wait for the previous frame before overwriting its uniform buffers.
+    //         const auto fd = graphics::internal::prepare();
+    //         if (fd.command_buffer == VK_NULL_HANDLE)
+    //             throw std::runtime_error("Failed to prepare frame");
+    //         ImGui_ImplGlfw_NewFrame();
+    //
+    //         ImGui::NewFrame();
+    //         application::Update(glfwGetTime());
+    //         ImGui::Render();
+    //
+    //         application::Render(fd);
+    //         graphics::internal::submitAndPresent();
+    //     }
+    // } catch (const std::exception &error) {
+    //     std::cerr << "Rendering failed: " << error.what() << '\n';
+    //     status = EXIT_FAILURE;
+    // }
+
+    application::Shutdown();
 err_application_init:
 	graphics::internal::shutdown();
 err_graphics_init:
@@ -99,5 +142,5 @@ err_imgui_init:
 err_null_window:
 	glfwTerminate();
 
-	return 0;
+    return status;
 }

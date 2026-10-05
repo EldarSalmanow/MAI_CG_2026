@@ -1,4 +1,5 @@
 #version 450
+
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inColor;
 
@@ -13,6 +14,6 @@ layout(location = 0) out vec3 fragColor;
 
 void main() {
     gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
-    // Доп. задание 5: Процедурный цвет вершины умножается на UI цвет
+
     fragColor = inColor * ubo.uiColor.rgb;
 }
