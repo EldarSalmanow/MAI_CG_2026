@@ -53,10 +53,19 @@ cmake --build build-release --parallel # for release
 For `msvc-{debug|release}` builds output subdirectory is set to `Debug` or `Release` respectively.
 For other configurations output subdirectory is set to `vulkan-starter-app`.
 
-**Make sure your working directory is set to the project root!**
-Project root is where this README file resides. Otherwise, the
-code responsible for loading shaders or other resources from files will fail,
-because relative paths are used.
+Shader paths are configured by CMake, so the application can run from any working
+directory. After moving the project, rerun CMake to update those paths.
+
+### Laboratory controls
+
+Select `Cube 1` or `Cube 2` to edit its position, rotation, scale and color.
+Vertex colors are generated from local coordinates and multiplied by the selected color.
+The projection buttons affect the whole scene.
+
+Enable `Lemniscate animation` for the selected cube, then press `Play`.
+`Pause` freezes its position and rotation on the trajectory; `Play` resumes from
+that point. Speed and radius are independent for each cube. Position offsets the
+trajectory, while rotation and scale remain editable during animation.
 
 ### Compiling shaders
 

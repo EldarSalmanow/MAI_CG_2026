@@ -10,14 +10,16 @@ if(LINUX)
 elseif(APPLE)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 elseif(MSVC)
-	target_compile_options(${PROJECT_NAME} PRIVATE /W4 /wd4201)
+	target_compile_options(${PROJECT_NAME} PRIVATE /W4 /wd4201 /utf-8)
 	target_link_options(${PROJECT_NAME} PRIVATE /subsystem:windows /entry:mainCRTStartup)
 	target_compile_definitions(${PROJECT_NAME} PRIVATE -D_USE_MATH_DEFINES)
 else()
 	message(FATAL_ERROR "${CMAKE_SYSTEM_NAME} is not supported")
 endif()
 
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD_REQUIRED TRUE CXX_STANDARD 20)
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_definitions(${PROJECT_NAME} PRIVATE CG_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 
 FetchContent_Declare(
 	glfw
@@ -76,20 +78,21 @@ target_sources(${PROJECT_NAME} PRIVATE
 )
 
 # Compile shaders
-find_program(GLSLC_FOUND glslc)
+find_program(GLSLC_FOUND NAMES glslc HINTS "$ENV{VULKAN_SDK}/Bin")
 if(GLSLC_FOUND)
 	set(_SHADER_BINARIES)
 
 	macro(compile_shader SHADER_FILE)
-		set(SHADER_SOURCE ${CMAKE_SOURCE_DIR}/shaders/${SHADER_FILE})
+		set(SHADER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${SHADER_FILE}")
 		set(SHADER_BINARY ${SHADER_FILE}.spv)
-		set(SHADER_BINARY_PATH ${CMAKE_SOURCE_DIR}/shaders/${SHADER_BINARY})
+		set(SHADER_BINARY_PATH "${CMAKE_CURRENT_SOURCE_DIR}/shaders/${SHADER_BINARY}")
 
 		add_custom_command(
 			OUTPUT ${SHADER_BINARY_PATH}
-			COMMAND glslc ${SHADER_SOURCE} -o ${SHADER_BINARY_PATH}
+			COMMAND "${GLSLC_FOUND}" "${SHADER_SOURCE}" -o "${SHADER_BINARY_PATH}"
 			DEPENDS ${SHADER_SOURCE}
 			COMMENT "Compiling ${SHADER_FILE} shader"
+			VERBATIM
 		)
 
 		list(APPEND _SHADER_BINARIES ${SHADER_BINARY_PATH})
@@ -98,8 +101,8 @@ if(GLSLC_FOUND)
 	# To compile shader file, use compile_shader function with a file name
 	# of a shader inside shaders directory. See example below:
 
-	# compile_shader(example.vert)
-	# compile_shader(example.frag)
+	compile_shader(shader.vert)
+	compile_shader(shader.frag)
 
 	add_custom_target(shaders DEPENDS ${_SHADER_BINARIES})
 	add_dependencies(${PROJECT_NAME} shaders)
