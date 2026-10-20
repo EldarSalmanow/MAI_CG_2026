@@ -90,7 +90,7 @@ if(GLSLC_FOUND)
 		add_custom_command(
 			OUTPUT ${SHADER_BINARY_PATH}
 			COMMAND "${GLSLC_FOUND}" "${SHADER_SOURCE}" -o "${SHADER_BINARY_PATH}"
-			DEPENDS ${SHADER_SOURCE}
+			DEPENDS ${SHADER_SOURCE} ${ARGN}
 			COMMENT "Compiling ${SHADER_FILE} shader"
 			VERBATIM
 		)
@@ -101,8 +101,8 @@ if(GLSLC_FOUND)
 	# To compile shader file, use compile_shader function with a file name
 	# of a shader inside shaders directory. See example below:
 
-	compile_shader(shader.vert)
-	compile_shader(shader.frag)
+	compile_shader(shader.vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl")
+	compile_shader(shader.frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl")
 
 	add_custom_target(shaders DEPENDS ${_SHADER_BINARIES})
 	add_dependencies(${PROJECT_NAME} shaders)
