@@ -17,7 +17,7 @@ namespace {
 constexpr int32_t default_window_width = 1280;
 constexpr int32_t default_window_height = 720;
 
-constexpr char default_window_title[] = "Computer Graphics - Laboratory Work 1";
+constexpr char default_window_title[] = "Computer Graphics - Laboratory Work 2";
 
 GLFWwindow *glfw_window;
 
@@ -88,47 +88,47 @@ int main() {
         goto err_application_init;
     }
 
-	while (!glfwWindowShouldClose(glfw_window)) {
-		const double time = glfwGetTime();
+	// while (!glfwWindowShouldClose(glfw_window)) {
+	// 	const double time = glfwGetTime();
+	//
+	// 	glfwPollEvents();
+	// 	ImGui_ImplGlfw_NewFrame();
+	//
+	// 	ImGui::NewFrame();
+	// 	application::Update(time);
+	// 	ImGui::Render();
+	//
+	// 	graphics::internal::FrameData fd = graphics::internal::prepare();
+	// 	application::Render(fd);
+	// 	graphics::internal::submitAndPresent();
+	// }
 
-		glfwPollEvents();
-		ImGui_ImplGlfw_NewFrame();
+    try {
+        while (!glfwWindowShouldClose(glfw_window)) {
+            glfwPollEvents();
+            int width = 0, height = 0;
+            glfwGetFramebufferSize(glfw_window, &width, &height);
+            if (width == 0 || height == 0) {
+                glfwWaitEvents();
+                continue;
+            }
+            // Wait for the previous frame before overwriting its uniform buffers.
+            const auto fd = graphics::internal::prepare();
+            if (fd.command_buffer == VK_NULL_HANDLE)
+                throw std::runtime_error("Failed to prepare frame");
+            ImGui_ImplGlfw_NewFrame();
 
-		ImGui::NewFrame();
-		application::Update(time);
-		ImGui::Render();
+            ImGui::NewFrame();
+            application::Update(glfwGetTime());
+            ImGui::Render();
 
-		graphics::internal::FrameData fd = graphics::internal::prepare();
-		application::Render(fd);
-		graphics::internal::submitAndPresent();
-	}
-
-    // try {
-    //     while (!glfwWindowShouldClose(glfw_window)) {
-    //         glfwPollEvents();
-    //         int width = 0, height = 0;
-    //         glfwGetFramebufferSize(glfw_window, &width, &height);
-    //         if (width == 0 || height == 0) {
-    //             glfwWaitEvents();
-    //             continue;
-    //         }
-    //         // Wait for the previous frame before overwriting its uniform buffers.
-    //         const auto fd = graphics::internal::prepare();
-    //         if (fd.command_buffer == VK_NULL_HANDLE)
-    //             throw std::runtime_error("Failed to prepare frame");
-    //         ImGui_ImplGlfw_NewFrame();
-    //
-    //         ImGui::NewFrame();
-    //         application::Update(glfwGetTime());
-    //         ImGui::Render();
-    //
-    //         application::Render(fd);
-    //         graphics::internal::submitAndPresent();
-    //     }
-    // } catch (const std::exception &error) {
-    //     std::cerr << "Rendering failed: " << error.what() << '\n';
-    //     status = EXIT_FAILURE;
-    // }
+            application::Render(fd);
+            graphics::internal::submitAndPresent();
+        }
+    } catch (const std::exception &error) {
+        std::cerr << "Rendering failed: " << error.what() << '\n';
+        status = EXIT_FAILURE;
+    }
 
     application::Shutdown();
 err_application_init:
