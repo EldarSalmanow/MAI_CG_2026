@@ -3,7 +3,7 @@ include(FetchContent)
 
 project(vulkan-starter-app LANGUAGES C CXX)
 
-add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp)
+add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/cg/image.cpp)
 
 if(LINUX)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
@@ -20,6 +20,7 @@ endif()
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 target_compile_definitions(${PROJECT_NAME} PRIVATE CG_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+target_compile_definitions(${PROJECT_NAME} PRIVATE CG_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/textures")
 
 FetchContent_Declare(
 	glfw

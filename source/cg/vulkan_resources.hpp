@@ -3,6 +3,7 @@
 #include "../graphics_internal.hpp"
 
 #include <algorithm>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -91,6 +92,10 @@ namespace cg {
     using DescriptorPool = DeviceHandle<VkDescriptorPool, vkDestroyDescriptorPool>;
     using PipelineLayout = DeviceHandle<VkPipelineLayout, vkDestroyPipelineLayout>;
     using Pipeline = DeviceHandle<VkPipeline, vkDestroyPipeline>;
+    using CommandPool = DeviceHandle<VkCommandPool, vkDestroyCommandPool>;
+    using Fence = DeviceHandle<VkFence, vkDestroyFence>;
+    using ImageView = DeviceHandle<VkImageView, vkDestroyImageView>;
+    using Sampler = DeviceHandle<VkSampler, vkDestroySampler>;
 
     class ShaderModule {
     public:
@@ -141,6 +146,8 @@ namespace cg {
         DeviceHandle<VkShaderModule, vkDestroyShaderModule> handle_;
     };
 
+    enum class MemoryLocation { Host, Device };
+
     class Buffer {
     public:
         Buffer() = default;
@@ -148,18 +155,24 @@ namespace cg {
         Buffer(
             const VmaAllocator allocator,
             const VkDeviceSize size,
-            const VkBufferUsageFlags usage
+            const VkBufferUsageFlags usage,
+            const MemoryLocation location = MemoryLocation::Host
         ) : allocator_{allocator},
-            size_{size} {
+            size_{size}, location_{location} {
             const VkBufferCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                 .size = size,
                 .usage = usage,
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE
             };
-            const VmaAllocationCreateInfo allocationInfo{
-                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, .usage = VMA_MEMORY_USAGE_AUTO
-            };
+            VmaAllocationCreateInfo allocationInfo{};
+            if (location == MemoryLocation::Device) {
+                allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+                allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            } else {
+                allocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+                allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+            }
 
             CheckVulkan(
                 vmaCreateBuffer(allocator_, &info, &allocationInfo, &handle_, &allocation_, nullptr),
@@ -188,15 +201,19 @@ namespace cg {
         }
 
         auto Upload(
-            const std::span<const std::byte> bytes
+            const std::span<const std::byte> bytes,
+            const VkDeviceSize offset = 0
         ) const -> void {
-            if (bytes.size_bytes() > size_) {
+            if (location_ != MemoryLocation::Host) {
+                throw std::logic_error{"Device-local buffers must be filled through staging"};
+            }
+            if (offset > size_ || bytes.size_bytes() > size_ - offset) {
                 throw std::out_of_range{"[ERROR] Upload exceeds buffer capacity!"};
             }
 
             if (!bytes.empty()) {
                 CheckVulkan(
-                    vmaCopyMemoryToAllocation(allocator_, bytes.data(), allocation_, 0, bytes.size_bytes()),
+                    vmaCopyMemoryToAllocation(allocator_, bytes.data(), allocation_, offset, bytes.size_bytes()),
                     "vmaCopyMemoryToAllocation"
                 );
             }
@@ -219,6 +236,7 @@ namespace cg {
             std::swap(handle_, other.handle_);
             std::swap(allocation_, other.allocation_);
             std::swap(size_, other.size_);
+            std::swap(location_, other.location_);
         }
 
     public:
@@ -240,6 +258,7 @@ namespace cg {
         VkBuffer handle_{VK_NULL_HANDLE};
         VmaAllocation allocation_{};
         VkDeviceSize size_{0};
+        MemoryLocation location_{MemoryLocation::Host};
     };
 
     template <class T>

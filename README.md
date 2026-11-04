@@ -72,3 +72,37 @@ trajectory, while rotation and scale remain editable during animation.
 `CMakeLists.txt` has a build recipe for compiling shader files
 along with an application. Look for a comment in this file to see
 how to compile your shaders.
+
+### Laboratory 3: textures
+
+The scene retains the camera, animation and lighting from Labs 1–2. The two
+cubes use brick and luminous circuit materials; the floor uses stone tiles.
+Original PNG assets and the stb_image decoder are included in the repository.
+
+In **Objects**, select an object and choose its **Texture**. **Solid color**
+preserves the earlier color controls. **UV repeat** changes texture repetition.
+**Animated sampling**, **Sampling speed** and **Sampling distortion** control
+the time-dependent effect. **Emission strength** controls the emissive map;
+set all lights and ambient intensity to zero to see emission in darkness.
+
+Each material has its own descriptor set. Every model uses the same dynamic
+uniform buffer with a distinct aligned offset. Geometry and texture images
+are copied through staging buffers into device-local GPU allocations.
+
+Architecture and implementation plan: [docs/lab3-architecture.md](docs/lab3-architecture.md).
+Asset descriptions and extension instructions: [assets/textures/README.md](assets/textures/README.md).
+
+Optional headless checks render real frames with Vulkan validation when the
+layer is installed. They require Vulkan SDK, GLM and VMA headers. The existing
+application build supplies VMA at the default location; otherwise pass
+`-DVMA_INCLUDE_DIR=/path/to/VulkanMemoryAllocator/include` when configuring:
+
+```sh
+cmake -S tests -B build-lab3-checks
+cmake --build build-lab3-checks --config Debug
+ctest --test-dir build-lab3-checks -C Debug --output-on-failure
+```
+
+These checks cover image decoding, cube UVs, texture selection, animation,
+specular/emissive maps, black fallbacks and dynamic uniform buffer growth.
+They save `lab3-scene.ppm` and `lab3-emissive.ppm` in the test build directory.

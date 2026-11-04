@@ -6,6 +6,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "material.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -87,6 +89,8 @@ private:
 
 class Material final {
 public:
+    MaterialPreset preset{MaterialPreset::Solid};
+    SamplingSettings sampling;
     glm::vec3 albedo{1.0f};
     glm::vec3 specular{0.5f};
     float shininess{48.0f};
@@ -234,19 +238,21 @@ public:
     Scene() {
         SceneObject first{"Cube 1"};
         first.transform.position = {-1.6f, 0.0f, 0.0f};
-        first.material.albedo = {0.65f, 0.8f, 1.0f};
+        first.material.preset = MaterialPreset::Brick;
         objects.push_back(std::move(first));
 
         SceneObject second{"Cube 2"};
         second.transform.position = {1.6f, 0.0f, -1.0f};
         second.transform.rotationDegrees = {0, 25, 0};
-        second.material.albedo = {1.0f, 0.7f, 0.45f};
+        second.material.preset = MaterialPreset::Circuit;
+        second.material.sampling.animated = true;
         objects.push_back(std::move(second));
 
         SceneObject floor{"Floor"};
         floor.transform.position = {0, -1.2f, 0};
         floor.transform.scale = {9.0f, 0.12f, 9.0f};
-        floor.material.albedo = {0.42f, 0.45f, 0.5f};
+        floor.material.preset = MaterialPreset::Stone;
+        floor.material.sampling.tiling = {9.0f, 9.0f};
         floor.material.vertexColorWeight = 0.0f;
         floor.material.shininess = 24.0f;
         floor.material.specular = glm::vec3{0.15f};
@@ -268,10 +274,15 @@ public:
 
 public:
     auto Advance(const double deltaSeconds) -> void {
+        if (std::isfinite(deltaSeconds) && deltaSeconds > 0.0) {
+            textureTime_ = std::fmod(textureTime_ + deltaSeconds, 4096.0);
+        }
         for (auto &object : objects) {
             object.animation.Advance(deltaSeconds);
         }
     }
+
+    auto TextureTime() const -> float { return static_cast<float>(textureTime_); }
 
 public:
     Camera camera;
@@ -285,6 +296,9 @@ public:
     bool showLightMarkers{true};
     bool showSpotCones{true};
     float coneLength{3.0f};
+
+private:
+    double textureTime_{0.0};
 };
 
 } // namespace cg

@@ -3,8 +3,24 @@
 #include "scene.hpp"
 
 #include <cstdint>
+#include <cstddef>
+#include <type_traits>
 
 namespace cg {
+
+    class alignas(16) SamplingPushConstants final {
+    public:
+        static auto From(const SamplingSettings &settings, const float time) -> SamplingPushConstants {
+            return {
+                .uvTime = {settings.tiling, time, settings.speed},
+                .effects = {settings.distortion, settings.animated ? 1.0f : 0.0f,
+                            settings.emissionStrength, 0.0f}
+            };
+        }
+
+        glm::vec4 uvTime{1, 1, 0, 0};
+        glm::vec4 effects{0, 0, 1, 0};
+    };
 
     class alignas(16) SceneUniform {
     public:
@@ -100,5 +116,14 @@ namespace cg {
         glm::vec4 direction;
         glm::vec4 coneCosines; // inner, outer, reserved, reserved
     };
+
+    static_assert(sizeof(SceneUniform) == 144);
+    static_assert(sizeof(ModelUniform) == 176);
+    static_assert(std::is_trivially_copyable_v<ModelUniform>);
+    static_assert(offsetof(ModelUniform, albedo) == 128);
+    static_assert(sizeof(PointLightData) == 32);
+    static_assert(sizeof(SpotLightData) == 64);
+    static_assert(sizeof(SamplingPushConstants) == 32);
+    static_assert(offsetof(SamplingPushConstants, effects) == 16);
 
 } // namespace cg

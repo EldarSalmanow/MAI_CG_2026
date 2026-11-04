@@ -13,6 +13,7 @@ public:
     glm::vec3 position;
     glm::vec3 normal;
     glm::vec3 color;
+    glm::vec2 uv{0.0f};
 };
 
 class Mesh {
@@ -51,18 +52,20 @@ public:
         mesh.vertices.reserve(24);
         mesh.indices.reserve(36);
 
+        constexpr std::array<glm::vec2, 4> coordinates{{{0, 1}, {1, 1}, {1, 0}, {0, 0}}};
         for (const auto &face : faces) {
             const auto normal = glm::normalize(glm::cross(corners[face[1]] - corners[face[0]],
                                                                      corners[face[2]] - corners[face[0]]));
 
             const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
-            for (const auto &corner : face) {
-                const auto position = corners[corner];
+            for (std::size_t i = 0; i < face.size(); ++i) {
+                const auto position = corners[face[i]];
 
                 mesh.vertices.push_back(Vertex{
                     .position = position,
                     .normal = normal,
-                    .color = (position + 1.0f) * 0.5f
+                    .color = (position + 1.0f) * 0.5f,
+                    .uv = coordinates[i]
                 });
             }
 

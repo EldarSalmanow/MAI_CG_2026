@@ -20,7 +20,7 @@ namespace cg {
             ImGui::SetNextWindowPos({16, 16}, ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize({380, 640}, ImGuiCond_FirstUseEver);
 
-            if (ImGui::Begin("Computer Graphics - Laboratory Work 2")) {
+            if (ImGui::Begin("Computer Graphics - Laboratory Work 3")) {
                 if (ImGui::BeginTabBar("Scene editor")) {
                     if (ImGui::BeginTabItem("Scene")) {
                         DrawScene(scene);
@@ -137,14 +137,13 @@ namespace cg {
             }
         }
 
-        // TODO:
         static auto DrawScene(
             Scene &scene
         ) -> void {
             DrawProjection(scene.camera);
             ImGui::Spacing();
             ImGui::Checkbox("Lighting", &scene.lightingEnabled);
-            ImGui::TextWrapped("Disable lighting to inspect the original vertex colors and object tint.");
+            ImGui::TextWrapped("Disable lighting to inspect textured albedo. Emission remains visible in darkness.");
             ImGui::SeparatorText("Ambient light");
             ImGui::ColorEdit3("Ambient color", glm::value_ptr(scene.ambientColor));
             SliderFloat("Ambient intensity", &scene.ambientIntensity, 0.0f, 1.0f);
@@ -182,7 +181,8 @@ namespace cg {
                               ImGuiSliderFlags_AlwaysClamp);
             ImGui::SeparatorText("Material");
             auto &material = object.material;
-            ImGui::ColorEdit3("Albedo", glm::value_ptr(material.albedo));
+            DrawMaterial(material);
+            ImGui::ColorEdit3("Albedo tint", glm::value_ptr(material.albedo));
             ImGui::ColorEdit3("Specular", glm::value_ptr(material.specular));
             SliderFloat("Shininess", &material.shininess, 1.0f, 256.0f, "%.0f");
             SliderFloat("Vertex colors", &material.vertexColorWeight, 0.0f, 1.0f);
@@ -200,6 +200,33 @@ namespace cg {
             SliderFloat("Speed", &animation.speed, 0.1f, 5.0f);
             SliderFloat("Radius", &animation.radius, 0.1f, 10.0f);
             SliderFloat("Vertical amplitude", &animation.height, 0.0f, 5.0f);
+            ImGui::EndDisabled();
+        }
+
+        static auto DrawMaterial(Material &material) -> void {
+            auto selected = static_cast<std::size_t>(material.preset);
+            selected = std::min(selected, MaterialDefinitions.size() - 1);
+            material.preset = static_cast<MaterialPreset>(selected);
+            if (ImGui::BeginCombo("Texture", MaterialDefinitions[selected].name.data())) {
+                for (std::size_t i = 0; i < MaterialDefinitions.size(); ++i) {
+                    if (ImGui::Selectable(MaterialDefinitions[i].name.data(), selected == i)) {
+                        material.preset = static_cast<MaterialPreset>(i);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            const auto &definition = MaterialDefinitions[static_cast<std::size_t>(material.preset)];
+            ImGui::Text("Specular map: %s / Emissive map: %s",
+                        definition.specular.empty() ? "black" : "yes",
+                        definition.emissive.empty() ? "black" : "yes");
+            auto &sampling = material.sampling;
+            ImGui::SliderFloat2("UV repeat", glm::value_ptr(sampling.tiling), 0.1f, 20.0f,
+                                "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            SliderFloat("Emission strength", &sampling.emissionStrength, 0.0f, 8.0f);
+            ImGui::Checkbox("Animated sampling", &sampling.animated);
+            ImGui::BeginDisabled(!sampling.animated);
+            SliderFloat("Sampling speed", &sampling.speed, 0.0f, 2.0f);
+            SliderFloat("Sampling distortion", &sampling.distortion, 0.0f, 0.5f);
             ImGui::EndDisabled();
         }
 

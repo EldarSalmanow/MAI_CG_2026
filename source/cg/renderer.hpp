@@ -2,13 +2,11 @@
 
 #include "geometry.hpp"
 #include "gpu_data.hpp"
+#include "material_bindings.hpp"
 #include "vulkan_resources.hpp"
 
 #include <array>
-#include <bit>
 #include <filesystem>
-#include <limits>
-#include <memory>
 #include <vector>
 
 namespace cg {
@@ -61,14 +59,11 @@ namespace cg {
     class GPUMesh {
     public:
         GPUMesh(
-            const VmaAllocator allocator,
+            const UploadContext &uploads,
             const Mesh &mesh
-        ) : vertices_{allocator, mesh.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT},
-            indices_{allocator, mesh.indices.size() * sizeof(std::uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT},
-            indexCount_{static_cast<std::uint32_t>(mesh.indices.size())} {
-            vertices_.Upload(std::as_bytes(std::span{mesh.vertices}));
-            indices_.Upload(std::as_bytes(std::span{mesh.indices}));
-        }
+        ) : vertices_{uploads.UploadBuffer(std::as_bytes(std::span{mesh.vertices}), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)},
+            indices_{uploads.UploadBuffer(std::as_bytes(std::span{mesh.indices}), VK_BUFFER_USAGE_INDEX_BUFFER_BIT)},
+            indexCount_{static_cast<std::uint32_t>(mesh.indices.size())} {}
 
     public:
         auto Draw(const VkCommandBuffer commands) const -> void {
@@ -85,83 +80,6 @@ namespace cg {
         Buffer vertices_;
         Buffer indices_;
         std::uint32_t indexCount_;
-    };
-
-    class DescriptorArena {
-    public:
-        DescriptorArena(
-            const graphics::internal::Context &context,
-            const VkDescriptorSetLayout layout,
-            const std::uint32_t capacity
-        ) : pool_{context.device},
-            sets_(capacity) {
-            buffers_.reserve(capacity);
-            for (std::uint32_t i = 0; i < capacity; ++i) {
-                buffers_.emplace_back(context.allocator,
-                                      sizeof(ModelUniform),
-                                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-            }
-
-            const VkDescriptorPoolSize size{
-                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                capacity
-            };
-            const VkDescriptorPoolCreateInfo poolInfo{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                .maxSets = capacity,
-                .poolSizeCount = 1,
-                .pPoolSizes = &size
-            };
-
-            CheckVulkan(
-                vkCreateDescriptorPool(context.device, &poolInfo, nullptr, pool_.Put()),
-                "vkCreateDescriptorPool"
-            );
-
-            const std::vector layouts(capacity, layout);
-            const VkDescriptorSetAllocateInfo allocationInfo{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                .descriptorPool = pool_.Get(),
-                .descriptorSetCount = capacity,
-                .pSetLayouts = layouts.data()
-            };
-
-            CheckVulkan(
-                vkAllocateDescriptorSets(context.device, &allocationInfo, sets_.data()),
-                "vkAllocateDescriptorSets"
-            );
-
-            for (std::uint32_t i = 0; i < capacity; ++i) {
-                WriteBufferDescriptor(context.device,
-                                      sets_[i],
-                                      0,
-                                      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                      buffers_[i]);
-            }
-        }
-
-    public:
-        auto Capacity() const -> std::size_t {
-            return sets_.size();
-        }
-
-        auto Set(
-            const std::size_t index
-        ) const -> VkDescriptorSet {
-            return sets_[index];
-        }
-
-        auto Upload(
-            const std::size_t index,
-            const ModelUniform &data
-        ) const -> void {
-            buffers_[index].UploadValue(data);
-        }
-
-    private:
-        std::vector<Buffer> buffers_;
-        DescriptorPool pool_;
-        std::vector<VkDescriptorSet> sets_;
     };
 
     class SceneBindings {
@@ -274,6 +192,8 @@ namespace cg {
     public:
         ModelUniform model;
         MeshKind mesh{MeshKind::Cube};
+        MaterialPreset material{MaterialPreset::Solid};
+        SamplingPushConstants sampling;
     };
 
     class SceneRenderer {
@@ -286,14 +206,19 @@ namespace cg {
             pipelineLayout_{context.device},
             solidPipeline_{context.device},
             linePipeline_{context.device},
-            cube_{context.allocator, MeshFactory::Cube()},
-            cone_{context.allocator, MeshFactory::ConeOutline()},
-            sceneBindings_{context, sceneLayout_.Get(), StorageLimit(context.physical_device)} {
+            uploads_{context},
+            cube_{uploads_, MeshFactory::Cube()},
+            cone_{uploads_, MeshFactory::ConeOutline()},
+            sceneBindings_{context, sceneLayout_.Get(), StorageLimit(context.physical_device)},
+            materials_{uploads_, modelLayout_.Get(), std::filesystem::path{CG_ASSET_DIR}} {
             const std::array layouts{sceneLayout_.Get(), modelLayout_.Get()};
+            constexpr VkPushConstantRange samplingRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SamplingPushConstants)};
             const VkPipelineLayoutCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                 .setLayoutCount = static_cast<std::uint32_t>(layouts.size()),
-                .pSetLayouts = layouts.data()
+                .pSetLayouts = layouts.data(),
+                .pushConstantRangeCount = 1,
+                .pPushConstantRanges = &samplingRange
             };
 
             CheckVulkan(
@@ -332,21 +257,14 @@ namespace cg {
             }
 
             BuildDrawList(scene);
-            if (!models_ || models_->Capacity() < draws_.size()) {
-                const auto capacity = std::bit_ceil(std::max(std::size_t{4}, draws_.size()));
-                if (capacity > std::numeric_limits<std::uint32_t>::max()) {
-                    throw std::length_error{"[ERROR] Too many drawable models!"};
-                }
-
-                models_ = std::make_unique<DescriptorArena>(context_, modelLayout_.Get(),
-                                                            static_cast<std::uint32_t>(capacity));
-            }
+            materials_.Prepare(draws_.size());
 
             sceneBindings_.Upload(scene, static_cast<float>(extent.width) / static_cast<float>(extent.height));
 
             for (std::size_t i = 0; i < draws_.size(); ++i) {
-                models_->Upload(i, draws_[i].model);
+                materials_.Write(i, draws_[i].model);
             }
+            materials_.Flush(draws_.size());
 
             Record(frame);
         }
@@ -386,8 +304,17 @@ namespace cg {
         ) -> DescriptorSetLayout {
             constexpr std::array bindings{
                 VkDescriptorSetLayoutBinding{
-                    0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+                    0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1,
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr
+                },
+                VkDescriptorSetLayoutBinding{
+                    1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr
+                },
+                VkDescriptorSetLayoutBinding{
+                    2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr
+                },
+                VkDescriptorSetLayoutBinding{
+                    3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr
                 }
             };
 
@@ -437,6 +364,12 @@ namespace cg {
                     .binding = 0,
                     .format = VK_FORMAT_R32G32B32_SFLOAT,
                     .offset = offsetof(Vertex, color)
+                },
+                VkVertexInputAttributeDescription{
+                    .location = 3,
+                    .binding = 0,
+                    .format = VK_FORMAT_R32G32_SFLOAT,
+                    .offset = offsetof(Vertex, uv)
                 }
             };
             const VkPipelineVertexInputStateCreateInfo vertexInput{
@@ -521,7 +454,12 @@ namespace cg {
             draws_.clear();
 
             for (const auto &object : scene.objects) {
-                draws_.push_back(DrawItem{ModelUniform::From(object), MeshKind::Cube});
+                draws_.push_back(DrawItem{
+                    .model = ModelUniform::From(object),
+                    .mesh = MeshKind::Cube,
+                    .material = object.material.preset,
+                    .sampling = SamplingPushConstants::From(object.material.sampling, scene.TextureTime())
+                });
             }
 
             const auto marker = [this](const PointLight &light) {
@@ -639,12 +577,9 @@ namespace cg {
                     boundPipeline = pipeline;
                 }
 
-                const auto modelSet = models_->Set(i);
-
-                vkCmdBindDescriptorSets(commands,
-                                        VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_.Get(), 1, 1,
-                                        &modelSet, 0, nullptr);
+                materials_.Bind(commands, pipelineLayout_.Get(), draws_[i].material, i);
+                vkCmdPushConstants(commands, pipelineLayout_.Get(), VK_SHADER_STAGE_FRAGMENT_BIT,
+                                   0, sizeof(SamplingPushConstants), &draws_[i].sampling);
                 (line ? cone_ : cube_).Draw(commands);
             }
 
@@ -663,10 +598,11 @@ namespace cg {
         PipelineLayout pipelineLayout_;
         Pipeline solidPipeline_;
         Pipeline linePipeline_;
+        UploadContext uploads_;
         GPUMesh cube_;
         GPUMesh cone_;
         SceneBindings sceneBindings_;
-        std::unique_ptr<DescriptorArena> models_;
+        MaterialBindings materials_;
         std::vector<DrawItem> draws_;
     };
 

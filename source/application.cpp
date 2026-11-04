@@ -21,7 +21,7 @@ auto Initialize() -> bool {
         laboratory = std::make_unique<cg::Application>(graphics::internal::context);
 
         if (auto *window = static_cast<GLFWwindow *>(ImGui::GetMainViewport()->PlatformHandle)) {
-            glfwSetWindowTitle(window, "Computer Graphics - Lab 2");
+            glfwSetWindowTitle(window, "Computer Graphics - Lab 3");
         }
 
         return true;
