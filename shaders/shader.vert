@@ -13,10 +13,11 @@ layout(location = 2) out vec3 vertexColor;
 layout(location = 3) out vec2 textureUV;
 
 void main() {
-    vec4 world = object.model * vec4(inPosition, 1.0);
-    worldPosition = world.xyz;
+    vec4 worldVertex = object.model * vec4(inPosition, 1.0);
+    gl_Position = scene.viewProjection * worldVertex;
+    worldPosition = worldVertex.xyz;
+    // Normalization happens per fragment after interpolation.
     worldNormal = mat3(object.normalMatrix) * inNormal;
     vertexColor = inColor;
     textureUV = inUV;
-    gl_Position = scene.viewProjection * world;
 }

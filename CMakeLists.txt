@@ -103,7 +103,10 @@ if(GLSLC_FOUND)
 	# of a shader inside shaders directory. See example below:
 
 	compile_shader(shader.vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl")
-	compile_shader(shader.frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl")
+	compile_shader(shader.frag
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl"
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/material.glsl"
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/lighting.glsl")
 
 	add_custom_target(shaders DEPENDS ${_SHADER_BINARIES})
 	add_dependencies(${PROJECT_NAME} shaders)
