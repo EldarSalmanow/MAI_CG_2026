@@ -16,8 +16,9 @@ void main() {
     vec4 worldVertex = object.model * vec4(inPosition, 1.0);
     gl_Position = scene.viewProjection * worldVertex;
     worldPosition = worldVertex.xyz;
-    // Normalization happens per fragment after interpolation.
+
     worldNormal = mat3(object.normalMatrix) * inNormal;
+
     vertexColor = inColor;
     textureUV = inUV;
 }

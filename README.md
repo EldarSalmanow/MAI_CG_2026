@@ -81,13 +81,18 @@ Original PNG assets and the stb_image decoder are included in the repository.
 
 In **Objects**, select an object and choose its **Texture**. **Solid color**
 preserves the earlier color controls. **UV repeat** changes texture repetition.
-**Animated sampling**, **Sampling speed** and **Sampling distortion** control
-the time-dependent effect. **Emission strength** controls the emissive map;
+**Animated sampling**, **Sampling speed** and **Sampling blend** control
+two scrolling texture layers and a smooth color pulse. **Emission strength** controls the emissive map;
 set all lights and ambient intensity to zero to see emission in darkness.
 
 Each material has its own descriptor set. Every model uses the same dynamic
 uniform buffer with a distinct aligned offset. Geometry and texture images
 are copied through staging buffers into device-local GPU allocations.
+
+The renderer exposes a small interface in `source/cg/renderer.hpp`; Vulkan
+setup and frame resources live in `renderer.cpp`. Image decoding and GPU
+texture creation form one module, `texture.hpp/.cpp`. Material properties
+and texture definitions are kept together in `material.hpp`.
 
 Architecture and implementation plan: [docs/lab3-architecture.md](docs/lab3-architecture.md).
 Asset descriptions and extension instructions: [assets/textures/README.md](assets/textures/README.md).
@@ -103,6 +108,7 @@ cmake --build build-lab3-checks --config Debug
 ctest --test-dir build-lab3-checks -C Debug --output-on-failure
 ```
 
-These checks cover image decoding, cube UVs, texture selection, animation,
-specular/emissive maps, black fallbacks and dynamic uniform buffer growth.
+These checks cover image decoding, cube UVs, Vulkan camera depth, texture
+selection, animated UV layers and color modulation, specular/emissive maps, black fallbacks, dynamic uniform
+buffer growth and resizing both light arrays.
 They save `lab3-scene.ppm` and `lab3-emissive.ppm` in the test build directory.

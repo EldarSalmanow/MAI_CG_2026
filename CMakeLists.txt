@@ -3,7 +3,17 @@ include(FetchContent)
 
 project(vulkan-starter-app LANGUAGES C CXX)
 
-add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/cg/image.cpp)
+add_executable(${PROJECT_NAME}
+		source/main.cpp
+
+		source/application.cpp
+		source/graphics_internal.cpp
+
+		source/cg/renderer.cpp
+		source/cg/texture.cpp
+)
+
+target_include_directories(${PROJECT_NAME} PRIVATE source)
 
 if(LINUX)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
