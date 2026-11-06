@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <span>
@@ -20,9 +19,7 @@ namespace cg {
         const char *operation
     ) -> void {
         if (result != VK_SUCCESS) {
-            throw std::runtime_error{
-                std::string{operation} + " failed (VkResult " + std::to_string(result) + ")"
-            };
+            throw std::runtime_error{std::string{operation} + " failed (VkResult " + std::to_string(result) + ")"};
         }
     }
 
@@ -33,20 +30,21 @@ namespace cg {
 
         explicit DeviceHandle(
             const VkDevice device
-        ) : device_{device} {}
+        )
+            : device_{device} {}
 
         DeviceHandle(const DeviceHandle &other) = delete;
 
-        DeviceHandle(DeviceHandle &&other) noexcept
-                : device_{other.device_},
-                  handle_{std::exchange(other.handle_, VK_NULL_HANDLE)} {}
+        DeviceHandle(
+            DeviceHandle &&other
+        ) noexcept
+            : device_{other.device_},
+              handle_{std::exchange(other.handle_, VK_NULL_HANDLE)} {}
 
-    public:
         ~DeviceHandle() {
             Reset();
         }
 
-    public:
         auto Get() const -> Handle {
             return handle_;
         }
@@ -57,19 +55,11 @@ namespace cg {
             return &handle_;
         }
 
-    private:
-        auto Reset() noexcept -> void {
-            if (handle_ != VK_NULL_HANDLE) {
-                Destroy(device_, handle_, nullptr);
-
-                handle_ = VK_NULL_HANDLE;
-            }
-        }
-
-    public:
         auto operator=(const DeviceHandle &other) -> DeviceHandle & = delete;
 
-        auto operator=(DeviceHandle &&other) noexcept -> DeviceHandle & {
+        auto operator=(
+            DeviceHandle &&other
+        ) noexcept -> DeviceHandle & {
             if (this == &other) {
                 return *this;
             }
@@ -83,6 +73,14 @@ namespace cg {
         }
 
     private:
+        auto Reset() noexcept -> void {
+            if (handle_ != VK_NULL_HANDLE) {
+                Destroy(device_, handle_, nullptr);
+
+                handle_ = VK_NULL_HANDLE;
+            }
+        }
+
         VkDevice device_{VK_NULL_HANDLE};
         Handle handle_{VK_NULL_HANDLE};
     };
@@ -91,13 +89,18 @@ namespace cg {
     using DescriptorPool = DeviceHandle<VkDescriptorPool, vkDestroyDescriptorPool>;
     using PipelineLayout = DeviceHandle<VkPipelineLayout, vkDestroyPipelineLayout>;
     using Pipeline = DeviceHandle<VkPipeline, vkDestroyPipeline>;
+    using CommandPool = DeviceHandle<VkCommandPool, vkDestroyCommandPool>;
+    using Fence = DeviceHandle<VkFence, vkDestroyFence>;
+    using ImageView = DeviceHandle<VkImageView, vkDestroyImageView>;
+    using Sampler = DeviceHandle<VkSampler, vkDestroySampler>;
 
     class ShaderModule {
     public:
         ShaderModule(
             const VkDevice device,
             const std::filesystem::path &path
-        ) : handle_{device} {
+        )
+            : handle_{device} {
             std::ifstream file{path, std::ios::binary | std::ios::ate};
 
             if (!file) {
@@ -126,19 +129,20 @@ namespace cg {
                 .pCode = code.data()
             };
 
-            CheckVulkan(
-                vkCreateShaderModule(device, &info, nullptr, handle_.Put()),
-                "vkCreateShaderModule"
-            );
+            CheckVulkan(vkCreateShaderModule(device, &info, nullptr, handle_.Put()), "vkCreateShaderModule");
         }
 
-    public:
         auto Get() const -> VkShaderModule {
             return handle_.Get();
         }
 
     private:
         DeviceHandle<VkShaderModule, vkDestroyShaderModule> handle_;
+    };
+
+    enum class MemoryLocation {
+        Host,
+        Device
     };
 
     class Buffer {
@@ -148,37 +152,44 @@ namespace cg {
         Buffer(
             const VmaAllocator allocator,
             const VkDeviceSize size,
-            const VkBufferUsageFlags usage
-        ) : allocator_{allocator},
-            size_{size} {
+            const VkBufferUsageFlags usage,
+            const MemoryLocation location = MemoryLocation::Host
+        )
+            : allocator_{allocator},
+              size_{size},
+              location_{location} {
             const VkBufferCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                 .size = size,
                 .usage = usage,
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE
             };
-            const VmaAllocationCreateInfo allocationInfo{
-                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, .usage = VMA_MEMORY_USAGE_AUTO
-            };
+            VmaAllocationCreateInfo allocationInfo{};
+            if (location == MemoryLocation::Device) {
+                allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+                allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            } else {
+                allocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+                allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+            }
 
             CheckVulkan(
-                vmaCreateBuffer(allocator_, &info, &allocationInfo, &handle_, &allocation_, nullptr),
-                "vmaCreateBuffer"
+                vmaCreateBuffer(allocator_, &info, &allocationInfo, &handle_, &allocation_, nullptr), "vmaCreateBuffer"
             );
         }
 
         Buffer(const Buffer &other) = delete;
 
-        Buffer(Buffer &&other) noexcept {
+        Buffer(
+            Buffer &&other
+        ) noexcept {
             Swap(other);
         }
 
-    public:
         ~Buffer() {
             Reset();
         }
 
-    public:
         auto Get() const -> VkBuffer {
             return handle_;
         }
@@ -188,43 +199,36 @@ namespace cg {
         }
 
         auto Upload(
-            const std::span<const std::byte> bytes
+            const std::span<const std::byte> bytes,
+            const VkDeviceSize offset = 0
         ) const -> void {
-            if (bytes.size_bytes() > size_) {
+            if (location_ != MemoryLocation::Host) {
+                throw std::logic_error{"Device-local buffers must be filled through staging"};
+            }
+            if (offset > size_ || bytes.size_bytes() > size_ - offset) {
                 throw std::out_of_range{"[ERROR] Upload exceeds buffer capacity!"};
             }
 
             if (!bytes.empty()) {
                 CheckVulkan(
-                    vmaCopyMemoryToAllocation(allocator_, bytes.data(), allocation_, 0, bytes.size_bytes()),
+                    vmaCopyMemoryToAllocation(allocator_, bytes.data(), allocation_, offset, bytes.size_bytes()),
                     "vmaCopyMemoryToAllocation"
                 );
             }
         }
 
         template <class T>
-        void UploadValue(const T &value) const {
+        void UploadValue(
+            const T &value
+        ) const {
             Upload(std::as_bytes(std::span{&value, 1}));
         }
 
-    private:
-        auto Reset() noexcept -> void {
-            if (handle_ != VK_NULL_HANDLE) {
-                vmaDestroyBuffer(allocator_, handle_, allocation_);
-            }
-        }
-
-        auto Swap(Buffer &other) noexcept -> void {
-            std::swap(allocator_, other.allocator_);
-            std::swap(handle_, other.handle_);
-            std::swap(allocation_, other.allocation_);
-            std::swap(size_, other.size_);
-        }
-
-    public:
         auto operator=(const Buffer &other) -> Buffer & = delete;
 
-        auto operator=(Buffer &&other) noexcept -> Buffer & {
+        auto operator=(
+            Buffer &&other
+        ) noexcept -> Buffer & {
             if (this == &other) {
                 return *this;
             }
@@ -236,10 +240,59 @@ namespace cg {
         }
 
     private:
+        auto Reset() noexcept -> void {
+            if (handle_ != VK_NULL_HANDLE) {
+                vmaDestroyBuffer(allocator_, handle_, allocation_);
+            }
+        }
+
+        auto Swap(
+            Buffer &other
+        ) noexcept -> void {
+            std::swap(allocator_, other.allocator_);
+            std::swap(handle_, other.handle_);
+            std::swap(allocation_, other.allocation_);
+            std::swap(size_, other.size_);
+            std::swap(location_, other.location_);
+        }
+
         VmaAllocator allocator_{};
         VkBuffer handle_{VK_NULL_HANDLE};
         VmaAllocation allocation_{};
         VkDeviceSize size_{0};
+        MemoryLocation location_{MemoryLocation::Host};
+    };
+
+    class DeviceImage final {
+    public:
+        DeviceImage(
+            const VmaAllocator allocator,
+            const VkImageCreateInfo &info
+        )
+            : allocator_{allocator} {
+            const VmaAllocationCreateInfo allocationInfo{
+                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE, .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+            };
+            CheckVulkan(
+                vmaCreateImage(allocator_, &info, &allocationInfo, &image_, &allocation_, nullptr), "vmaCreateImage"
+            );
+        }
+
+        DeviceImage(const DeviceImage &) = delete;
+        auto operator=(const DeviceImage &) -> DeviceImage & = delete;
+
+        ~DeviceImage() {
+            vmaDestroyImage(allocator_, image_, allocation_);
+        }
+
+        auto Get() const noexcept -> VkImage {
+            return image_;
+        }
+
+    private:
+        VmaAllocator allocator_;
+        VkImage image_{};
+        VmaAllocation allocation_{};
     };
 
     template <class T>
@@ -248,12 +301,12 @@ namespace cg {
         StorageBuffer(
             const VmaAllocator allocator,
             const VkDeviceSize maxBytes
-        ) : allocator_{allocator},
-            limit_{maxBytes / sizeof(T)} {
+        )
+            : allocator_{allocator},
+              limit_{maxBytes / sizeof(T)} {
             Upload({});
         }
 
-    public:
         auto Upload(
             const std::span<const T> values
         ) -> bool {
@@ -266,9 +319,7 @@ namespace cg {
             const bool resized = required > capacity_;
 
             if (resized) {
-                const auto capacity = std::max(required,
-                                                              std::min(limit_,
-                                                                       std::max(std::size_t{1}, capacity_ * 2)));
+                const auto capacity = std::max(required, std::min(limit_, std::max(std::size_t{1}, capacity_ * 2)));
                 buffer_ = Buffer{allocator_, capacity * sizeof(T), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT};
                 capacity_ = capacity;
             }

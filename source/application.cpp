@@ -10,43 +10,47 @@
 
 namespace {
 
-std::unique_ptr<cg::Application> laboratory;
+    std::unique_ptr<cg::Application> laboratory;
 
 } // namespace
 
 namespace application {
 
-auto Initialize() -> bool {
-    try {
-        laboratory = std::make_unique<cg::Application>(graphics::internal::context);
+    auto Initialize() -> bool {
+        try {
+            laboratory = std::make_unique<cg::Application>(graphics::internal::context);
 
-        if (auto *window = static_cast<GLFWwindow *>(ImGui::GetMainViewport()->PlatformHandle)) {
-            glfwSetWindowTitle(window, "Computer Graphics - Lab 2");
+            if (auto *window = static_cast<GLFWwindow *>(ImGui::GetMainViewport()->PlatformHandle)) {
+                glfwSetWindowTitle(window, "Computer Graphics - Lab 3");
+            }
+
+            return true;
+        } catch (const std::exception &error) {
+            std::cerr << "[ERROR] Application initialization failed: " << error.what() << std::endl;
+
+            return false;
+        }
+    }
+
+    auto Shutdown() -> void {
+        if (!laboratory) {
+            return;
         }
 
-        return true;
-    } catch (const std::exception& error) {
-        std::cerr << "[ERROR] Application initialization failed: " << error.what() << std::endl;
-
-        return false;
-    }
-}
-
-auto Shutdown() -> void {
-    if (!laboratory) {
-        return;
+        vkDeviceWaitIdle(graphics::internal::context.device);
+        laboratory.reset();
     }
 
-    vkDeviceWaitIdle(graphics::internal::context.device);
-    laboratory.reset();
-}
+    auto Update(
+        const double time
+    ) -> void {
+        laboratory->Update(time);
+    }
 
-auto Update(const double time) -> void {
-    laboratory->Update(time);
-}
-
-auto Render(const graphics::internal::FrameData& frame) -> void {
-    laboratory->Render(frame);
-}
+    auto Render(
+        const graphics::internal::FrameData &frame
+    ) -> void {
+        laboratory->Render(frame);
+    }
 
 } // namespace application

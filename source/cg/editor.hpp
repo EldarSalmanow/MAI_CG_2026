@@ -7,7 +7,6 @@
 
 #include <string>
 
-
 namespace cg {
 
     class SceneEditor {
@@ -20,7 +19,7 @@ namespace cg {
             ImGui::SetNextWindowPos({16, 16}, ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize({380, 640}, ImGuiCond_FirstUseEver);
 
-            if (ImGui::Begin("Computer Graphics - Laboratory Work 2")) {
+            if (ImGui::Begin("Computer Graphics - Laboratory Work 3")) {
                 if (ImGui::BeginTabBar("Scene editor")) {
                     if (ImGui::BeginTabItem("Scene")) {
                         DrawScene(scene);
@@ -95,14 +94,11 @@ namespace cg {
 
             const float multiplier = io.KeyShift ? 3.0f : 1.0f;
 
-            camera.position += normalizedOr(movement, glm::vec3{0.0f})
-                             * camera.movementSpeed
-                             * multiplier
-                             * static_cast<float>(deltaSeconds);
+            camera.position += NormalizedOr(movement, glm::vec3{0.0f}) * camera.movementSpeed * multiplier *
+                               static_cast<float>(deltaSeconds);
         }
 
     private:
-        // Ctrl-click text entry must obey the same bounds as dragging the slider.
         static auto SliderFloat(
             const char *label,
             float *value,
@@ -137,14 +133,13 @@ namespace cg {
             }
         }
 
-        // TODO:
         static auto DrawScene(
             Scene &scene
         ) -> void {
             DrawProjection(scene.camera);
             ImGui::Spacing();
             ImGui::Checkbox("Lighting", &scene.lightingEnabled);
-            ImGui::TextWrapped("Disable lighting to inspect the original vertex colors and object tint.");
+            ImGui::TextWrapped("Disable lighting to inspect textured albedo. Emission remains visible in darkness.");
             ImGui::SeparatorText("Ambient light");
             ImGui::ColorEdit3("Ambient color", glm::value_ptr(scene.ambientColor));
             SliderFloat("Ambient intensity", &scene.ambientIntensity, 0.0f, 1.0f);
@@ -153,8 +148,7 @@ namespace cg {
             ImGui::Checkbox("Show spotlight cones", &scene.showSpotCones);
             SliderFloat("Cone length", &scene.coneLength, 0.2f, 15.0f);
             ImGui::SeparatorText("Navigation");
-            ImGui::TextWrapped(
-                               "WASD: move / Q,E: down,up / Shift: faster\nRight mouse drag outside this window: look");
+            ImGui::TextWrapped("WASD: move / Q,E: down,up / Shift: faster\nRight mouse drag outside this window: look");
             ImGui::Text("%.1f FPS", static_cast<double>(ImGui::GetIO().Framerate));
         }
 
@@ -178,11 +172,14 @@ namespace cg {
             ImGui::SeparatorText("Transform");
             ImGui::DragFloat3("Position", glm::value_ptr(object.transform.position), 0.05f);
             SliderFloat3("Rotation", glm::value_ptr(object.transform.rotationDegrees), -180.0f, 180.0f);
-            ImGui::DragFloat3("Scale", glm::value_ptr(object.transform.scale), 0.02f, 0.05f, 20.0f, "%.2f",
-                              ImGuiSliderFlags_AlwaysClamp);
+            ImGui::DragFloat3(
+                "Scale", glm::value_ptr(object.transform.scale), 0.02f, 0.05f, 20.0f, "%.2f",
+                ImGuiSliderFlags_AlwaysClamp
+            );
             ImGui::SeparatorText("Material");
             auto &material = object.material;
-            ImGui::ColorEdit3("Albedo", glm::value_ptr(material.albedo));
+            DrawMaterial(material);
+            ImGui::ColorEdit3("Albedo tint", glm::value_ptr(material.albedo));
             ImGui::ColorEdit3("Specular", glm::value_ptr(material.specular));
             SliderFloat("Shininess", &material.shininess, 1.0f, 256.0f, "%.0f");
             SliderFloat("Vertex colors", &material.vertexColorWeight, 0.0f, 1.0f);
@@ -203,6 +200,38 @@ namespace cg {
             ImGui::EndDisabled();
         }
 
+        static auto DrawMaterial(
+            Material &material
+        ) -> void {
+            const auto selected = MaterialIndex(material.preset);
+
+            if (ImGui::BeginCombo("Texture", MaterialDefinitions[selected].name.data())) {
+                for (const auto &definition : MaterialDefinitions) {
+                    if (ImGui::Selectable(definition.name.data(), material.preset == definition.preset)) {
+                        material.preset = definition.preset;
+                    }
+                }
+
+                ImGui::EndCombo();
+            }
+
+            const auto &definition = MaterialDefinitions[MaterialIndex(material.preset)];
+            ImGui::Text(
+                "Specular map: %s / Emissive map: %s", definition.specular.empty() ? "black" : "yes",
+                definition.emissive.empty() ? "black" : "yes"
+            );
+            auto &sampling = material.sampling;
+            ImGui::SliderFloat2(
+                "UV repeat", glm::value_ptr(sampling.tiling), 0.1f, 20.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp
+            );
+            SliderFloat("Emission strength", &sampling.emissionStrength, 0.0f, 8.0f);
+            ImGui::Checkbox("Animated sampling", &sampling.animated);
+            ImGui::BeginDisabled(!sampling.animated);
+            SliderFloat("Sampling speed", &sampling.speed, 0.0f, 2.0f);
+            SliderFloat("Sampling blend", &sampling.blendWeight, 0.0f, 1.0f);
+            ImGui::EndDisabled();
+        }
+
         static auto DrawCamera(
             Camera &camera
         ) -> void {
@@ -213,10 +242,14 @@ namespace cg {
             SliderFloat("Roll", &camera.rollDegrees, -180.0f, 180.0f);
             SliderFloat("Field of view", &camera.fieldOfViewDegrees, 15.0f, 110.0f, "%.1f deg");
             SliderFloat("Ortho height", &camera.orthographicHeight, 1.0f, 60.0f);
-            ImGui::DragFloat("Near plane", &camera.nearPlane, 0.01f, 0.01f, camera.farPlane - 0.1f, "%.2f",
-                             ImGuiSliderFlags_AlwaysClamp);
-            ImGui::DragFloat("Far plane", &camera.farPlane, 1.0f, camera.nearPlane + 0.1f, 1000.0f, "%.1f",
-                             ImGuiSliderFlags_AlwaysClamp);
+            ImGui::DragFloat(
+                "Near plane", &camera.nearPlane, 0.01f, 0.01f, camera.farPlane - 0.1f, "%.2f",
+                ImGuiSliderFlags_AlwaysClamp
+            );
+            ImGui::DragFloat(
+                "Far plane", &camera.farPlane, 1.0f, camera.nearPlane + 0.1f, 1000.0f, "%.1f",
+                ImGuiSliderFlags_AlwaysClamp
+            );
             SliderFloat("Movement speed", &camera.movementSpeed, 0.2f, 30.0f);
             SliderFloat("Mouse sensitivity", &camera.mouseSensitivity, 0.02f, 1.0f);
             if (ImGui::Button("Reset camera")) {
@@ -244,10 +277,14 @@ namespace cg {
         ) -> void {
             EditEmitter(light.emitter);
             SliderFloat3("Direction", glm::value_ptr(light.direction), -1.0f, 1.0f);
-            SliderFloat("Inner half-angle", &light.innerAngleDegrees, 0.0f, light.outerAngleDegrees, "%.1f deg",
-                        ImGuiSliderFlags_AlwaysClamp);
-            SliderFloat("Outer half-angle", &light.outerAngleDegrees, std::max(0.1f, light.innerAngleDegrees),
-                        85.0f, "%.1f deg", ImGuiSliderFlags_AlwaysClamp);
+            SliderFloat(
+                "Inner half-angle", &light.innerAngleDegrees, 0.0f, light.outerAngleDegrees, "%.1f deg",
+                ImGuiSliderFlags_AlwaysClamp
+            );
+            SliderFloat(
+                "Outer half-angle", &light.outerAngleDegrees, std::max(0.1f, light.innerAngleDegrees), 85.0f,
+                "%.1f deg", ImGuiSliderFlags_AlwaysClamp
+            );
             ImGui::TextWrapped("Equal angles produce a hard edge; separated angles produce a soft edge.");
         }
 
@@ -334,7 +371,7 @@ namespace cg {
         }
 
         std::size_t selectedObject_ = 0;
-        std::size_t selectedPoint_  = 0;
-        std::size_t selectedSpot_   = 0;
+        std::size_t selectedPoint_ = 0;
+        std::size_t selectedSpot_ = 0;
     };
 } // namespace cg

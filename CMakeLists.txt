@@ -3,7 +3,17 @@ include(FetchContent)
 
 project(vulkan-starter-app LANGUAGES C CXX)
 
-add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp)
+add_executable(${PROJECT_NAME}
+		source/main.cpp
+
+		source/application.cpp
+		source/graphics_internal.cpp
+
+		source/cg/renderer.cpp
+		source/cg/texture.cpp
+)
+
+target_include_directories(${PROJECT_NAME} PRIVATE source)
 
 if(LINUX)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
@@ -20,6 +30,7 @@ endif()
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_EXTENSIONS OFF)
 target_compile_definitions(${PROJECT_NAME} PRIVATE CG_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+target_compile_definitions(${PROJECT_NAME} PRIVATE CG_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/textures")
 
 FetchContent_Declare(
 	glfw
@@ -102,7 +113,10 @@ if(GLSLC_FOUND)
 	# of a shader inside shaders directory. See example below:
 
 	compile_shader(shader.vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl")
-	compile_shader(shader.frag "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl")
+	compile_shader(shader.frag
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl"
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/material.glsl"
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/lighting.glsl")
 
 	add_custom_target(shaders DEPENDS ${_SHADER_BINARIES})
 	add_dependencies(${PROJECT_NAME} shaders)
