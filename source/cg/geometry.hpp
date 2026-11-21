@@ -10,6 +10,12 @@
 
 namespace cg {
 
+    enum class MeshKind {
+        Cube,
+        Plane,
+        ConeOutline
+    };
+
     class Vertex {
     public:
         glm::vec3 position;
@@ -59,6 +65,18 @@ namespace cg {
             }
 
             return mesh;
+        }
+
+        static auto Plane() -> Mesh {
+            return Mesh{
+                .vertices = {
+                    Vertex{.position = {-1, 0, -1}, .normal = {0, 1, 0}, .color = {1, 1, 1}, .uv = {0, 1}},
+                    Vertex{.position = {-1, 0, 1}, .normal = {0, 1, 0}, .color = {1, 1, 1}, .uv = {1, 1}},
+                    Vertex{.position = {1, 0, 1}, .normal = {0, 1, 0}, .color = {1, 1, 1}, .uv = {1, 0}},
+                    Vertex{.position = {1, 0, -1}, .normal = {0, 1, 0}, .color = {1, 1, 1}, .uv = {0, 0}}
+                },
+                .indices = {0, 1, 2, 2, 3, 0}
+            };
         }
 
         static auto ConeOutline() -> Mesh {

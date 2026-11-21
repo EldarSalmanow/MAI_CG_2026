@@ -19,7 +19,7 @@ namespace cg {
             ImGui::SetNextWindowPos({16, 16}, ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize({380, 640}, ImGuiCond_FirstUseEver);
 
-            if (ImGui::Begin("Computer Graphics - Laboratory Work 3")) {
+            if (ImGui::Begin("Computer Graphics - Laboratory Work 4")) {
                 if (ImGui::BeginTabBar("Scene editor")) {
                     if (ImGui::BeginTabItem("Scene")) {
                         DrawScene(scene);
@@ -41,6 +41,12 @@ namespace cg {
 
                     if (ImGui::BeginTabItem("Lights")) {
                         DrawLights(scene, pointLimit, spotLimit);
+
+                        ImGui::EndTabItem();
+                    }
+
+                    if (ImGui::BeginTabItem("Shadows")) {
+                        DrawShadows(scene);
 
                         ImGui::EndTabItem();
                     }
@@ -169,6 +175,7 @@ namespace cg {
                 ImGui::EndCombo();
             }
             auto &object = scene.objects[selectedObject_];
+            ImGui::Checkbox("Cast shadow", &object.castsShadow);
             ImGui::SeparatorText("Transform");
             ImGui::DragFloat3("Position", glm::value_ptr(object.transform.position), 0.05f);
             SliderFloat3("Rotation", glm::value_ptr(object.transform.rotationDegrees), -180.0f, 180.0f);
@@ -368,6 +375,54 @@ namespace cg {
             if (ImGui::CollapsingHeader("Spot lights", ImGuiTreeNodeFlags_DefaultOpen)) {
                 EditCollection("Spot", scene.spotLights, selectedSpot_, spotLimit);
             }
+        }
+
+        static auto DrawShadows(
+            Scene &scene
+        ) -> void {
+            auto &settings = scene.shadows;
+            ImGui::Checkbox("Enable shadows", &settings.enabled);
+            ImGui::BeginDisabled(!settings.enabled);
+
+            ImGui::SeparatorText("Directional light");
+            ImGui::Checkbox("Sun shadow", &settings.directionalEnabled);
+            SliderFloat("Orthographic area", &settings.orthographicSize, 2.0f, 60.0f, "%.1f units");
+            ImGui::DragFloat3("Area center", glm::value_ptr(settings.center), 0.1f);
+
+            ImGui::SeparatorText("Depth range and bias");
+            ImGui::DragFloat(
+                "Shadow near plane", &settings.nearPlane, 0.01f, 0.01f, settings.farPlane - 0.1f, "%.2f",
+                ImGuiSliderFlags_AlwaysClamp
+            );
+            ImGui::DragFloat(
+                "Shadow far plane", &settings.farPlane, 0.5f, settings.nearPlane + 0.1f, 200.0f, "%.1f",
+                ImGuiSliderFlags_AlwaysClamp
+            );
+            SliderFloat("Depth bias", &settings.depthBias, 0.0f, 8.0f);
+            SliderFloat("Slope bias", &settings.slopeBias, 0.0f, 8.0f);
+
+            ImGui::SeparatorText("Spotlight");
+            ImGui::Checkbox("Spotlight shadow", &settings.spotEnabled);
+            if (scene.spotLights.empty()) {
+                ImGui::TextUnformatted("Add a spotlight in the Lights tab to cast a spotlight shadow.");
+            } else {
+                settings.spotLightIndex = std::min(settings.spotLightIndex, scene.spotLights.size() - 1);
+                const auto label = "Spot " + std::to_string(settings.spotLightIndex + 1);
+
+                if (ImGui::BeginCombo("Shadow source", label.c_str())) {
+                    for (std::size_t i = 0; i < scene.spotLights.size(); ++i) {
+                        const auto name = "Spot " + std::to_string(i + 1);
+                        if (ImGui::Selectable(name.c_str(), settings.spotLightIndex == i)) {
+                            settings.spotLightIndex = i;
+                        }
+                    }
+
+                    ImGui::EndCombo();
+                }
+            }
+
+            ImGui::TextWrapped("Only the selected spotlight casts a shadow. Ambient and emission remain independent.");
+            ImGui::EndDisabled();
         }
 
         std::size_t selectedObject_ = 0;

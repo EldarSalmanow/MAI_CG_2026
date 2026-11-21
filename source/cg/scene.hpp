@@ -4,6 +4,7 @@
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "geometry.hpp"
 #include "material.hpp"
 
 #include <algorithm>
@@ -101,9 +102,11 @@ namespace cg {
         }
 
         std::string name;
+        MeshKind mesh{MeshKind::Cube};
         Transform transform;
         Material material;
         LemniscateAnimation animation;
+        bool castsShadow{true};
     };
 
     enum class Projection {
@@ -229,6 +232,54 @@ namespace cg {
         float outerAngleDegrees{28.0f};
     };
 
+    class ShadowSettings {
+    public:
+        auto DirectionalMatrix(
+            const DirectionalLight &light
+        ) const -> glm::mat4 {
+            const auto direction = NormalizedOr(light.direction, {0, -1, 0});
+            const float distance = (nearPlane + farPlane) * 0.5f;
+            const auto position = center - direction * distance;
+            const float halfSize = orthographicSize * 0.5f;
+
+            auto projection = glm::orthoRH_ZO(-halfSize, halfSize, -halfSize, halfSize, nearPlane, farPlane);
+            projection[1][1] *= -1.0f;
+
+            return projection * LightView(position, direction);
+        }
+
+        auto SpotMatrix(
+            const SpotLight &light
+        ) const -> glm::mat4 {
+            const float fieldOfView = glm::radians(2.0f * light.outerAngleDegrees);
+            auto projection = glm::perspectiveRH_ZO(fieldOfView, 1.0f, nearPlane, farPlane);
+            projection[1][1] *= -1.0f;
+
+            return projection * LightView(light.emitter.position, light.NormalizedDirection());
+        }
+
+        bool enabled{true};
+        bool directionalEnabled{true};
+        bool spotEnabled{true};
+        std::size_t spotLightIndex{0};
+        glm::vec3 center{0.0f};
+        float orthographicSize{26.0f};
+        float nearPlane{0.1f};
+        float farPlane{60.0f};
+        float depthBias{1.25f};
+        float slopeBias{1.75f};
+
+    private:
+        static auto LightView(
+            const glm::vec3 position,
+            const glm::vec3 direction
+        ) -> glm::mat4 {
+            const auto up = std::abs(direction.y) > 0.99f ? glm::vec3{1, 0, 0} : glm::vec3{0, 1, 0};
+
+            return glm::lookAtRH(position, position + direction, up);
+        }
+    };
+
     class Scene final {
     public:
         Scene() {
@@ -245,8 +296,10 @@ namespace cg {
             objects.push_back(std::move(second));
 
             SceneObject floor{"Floor"};
-            floor.transform.position = {0, -1.2f, 0};
-            floor.transform.scale = {9.0f, 0.12f, 9.0f};
+            floor.mesh = MeshKind::Plane;
+            floor.castsShadow = false;
+            floor.transform.position = {0, -1.08f, 0};
+            floor.transform.scale = {9.0f, 1.0f, 9.0f};
             floor.material.preset = MaterialPreset::Stone;
             floor.material.sampling.tiling = {9.0f, 9.0f};
             floor.material.vertexColorWeight = 0.0f;
@@ -288,6 +341,7 @@ namespace cg {
         DirectionalLight directionalLight;
         std::vector<PointLight> pointLights;
         std::vector<SpotLight> spotLights;
+        ShadowSettings shadows;
         glm::vec3 ambientColor{0.65f, 0.75f, 1.0f};
         float ambientIntensity{0.12f};
         bool lightingEnabled{true};

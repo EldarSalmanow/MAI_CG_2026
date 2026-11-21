@@ -24,8 +24,9 @@ This repository does not contain any submodules, it utilizes CMake's `FetchConte
 Run either one of the CMake lines to download dependencies and configure the project:
 
 ```bash
-cmake --preset debug      # for GNU/Linux (GCC/Clang)
-cmake --preset msvc-debug # for Windows (Visual Studio 2019)
+cmake --preset debug       # for GNU/Linux (GCC/Clang)
+cmake --preset msvc-debug  # for Windows (Visual Studio 2019)
+cmake --preset mingw-debug # for Windows (MinGW)
 ```
 
 If you wish to build in `release` mode, change `debug` to `release`.
@@ -53,62 +54,13 @@ cmake --build build-release --parallel # for release
 For `msvc-{debug|release}` builds output subdirectory is set to `Debug` or `Release` respectively.
 For other configurations output subdirectory is set to `vulkan-starter-app`.
 
-Shader paths are configured by CMake, so the application can run from any working
-directory. After moving the project, rerun CMake to update those paths.
-
-### Laboratory controls
-
-Select `Cube 1` or `Cube 2` to edit its position, rotation, scale and color.
-Vertex colors are generated from local coordinates and multiplied by the selected color.
-The projection buttons affect the whole scene.
-
-Enable `Lemniscate animation` for the selected cube, then press `Play`.
-`Pause` freezes its position and rotation on the trajectory; `Play` resumes from
-that point. Speed and radius are independent for each cube. Position offsets the
-trajectory, while rotation and scale remain editable during animation.
+**Make sure your working directory is set to the project root!**
+Project root is where this README file resides. Otherwise, the
+code responsible for loading shaders or other resources from files will fail,
+because relative paths are used.
 
 ### Compiling shaders
 
 `CMakeLists.txt` has a build recipe for compiling shader files
 along with an application. Look for a comment in this file to see
 how to compile your shaders.
-
-### Laboratory 3: textures
-
-The scene retains the camera, animation and lighting from Labs 1–2. The two
-cubes use brick and luminous circuit materials; the floor uses stone tiles.
-Original PNG assets and the stb_image decoder are included in the repository.
-
-In **Objects**, select an object and choose its **Texture**. **Solid color**
-preserves the earlier color controls. **UV repeat** changes texture repetition.
-**Animated sampling**, **Sampling speed** and **Sampling blend** control
-two scrolling texture layers and a smooth color pulse. **Emission strength** controls the emissive map;
-set all lights and ambient intensity to zero to see emission in darkness.
-
-Each material has its own descriptor set. Every model uses the same dynamic
-uniform buffer with a distinct aligned offset. Geometry and texture images
-are copied through staging buffers into device-local GPU allocations.
-
-The renderer exposes a small interface in `source/cg/renderer.hpp`; Vulkan
-setup and frame resources live in `renderer.cpp`. Image decoding and GPU
-texture creation form one module, `texture.hpp/.cpp`. Material properties
-and texture definitions are kept together in `material.hpp`.
-
-Architecture and implementation plan: [docs/lab3-architecture.md](docs/lab3-architecture.md).
-Asset descriptions and extension instructions: [assets/textures/README.md](assets/textures/README.md).
-
-Optional headless checks render real frames with Vulkan validation when the
-layer is installed. They require Vulkan SDK, GLM and VMA headers. The existing
-application build supplies VMA at the default location; otherwise pass
-`-DVMA_INCLUDE_DIR=/path/to/VulkanMemoryAllocator/include` when configuring:
-
-```sh
-cmake -S tests -B build-lab3-checks
-cmake --build build-lab3-checks --config Debug
-ctest --test-dir build-lab3-checks -C Debug --output-on-failure
-```
-
-These checks cover image decoding, cube UVs, Vulkan camera depth, texture
-selection, animated UV layers and color modulation, specular/emissive maps, black fallbacks, dynamic uniform
-buffer growth and resizing both light arrays.
-They save `lab3-scene.ppm` and `lab3-emissive.ppm` in the test build directory.

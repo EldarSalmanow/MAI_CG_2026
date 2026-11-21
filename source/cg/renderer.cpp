@@ -2,6 +2,7 @@
 #include "gpu_data.hpp"
 #include "renderer.hpp"
 #include "texture.hpp"
+#include "shadow.hpp"
 
 #include <array>
 #include <bit>
@@ -12,9 +13,11 @@
 namespace cg {
     namespace {
 
-        enum class MeshKind {
-            Cube,
-            ConeOutline
+        enum class PipelineKind {
+            Surface,
+            TwoSidedSurface,
+            Lines,
+            Shadow
         };
 
         class DrawItem final {
@@ -23,6 +26,7 @@ namespace cg {
             MeshKind mesh{MeshKind::Cube};
             MaterialPreset material{MaterialPreset::Solid};
             SamplingPushConstants sampling;
+            bool castsShadow{true};
         };
 
         class GpuMesh final {
@@ -110,10 +114,30 @@ namespace cg {
             vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
         }
 
+        auto WriteImageDescriptor(
+            const VkDevice device,
+            const VkDescriptorSet set,
+            const std::uint32_t binding,
+            const VkDescriptorImageInfo &image
+        ) -> void {
+            const VkWriteDescriptorSet write{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = set,
+                .dstBinding = binding,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &image
+            };
+
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
+
         class RenderResources final {
         public:
             RenderResources(
                 const UploadContext &uploads,
+                const ShadowMap &directionalShadow,
+                const ShadowMap &spotShadow,
                 const std::filesystem::path &directory
             )
                 : context_{uploads.Context()},
@@ -139,6 +163,8 @@ namespace cg {
                 );
                 WriteModelDescriptors();
                 LoadMaterials(uploads, directory);
+                WriteImageDescriptor(context_.device, sceneSet_, 3, directionalShadow.Descriptor());
+                WriteImageDescriptor(context_.device, sceneSet_, 4, spotShadow.Descriptor());
             }
 
             auto Layouts() const -> std::array<VkDescriptorSetLayout, 2> {
@@ -155,10 +181,10 @@ namespace cg {
 
             auto Update(
                 const Scene &scene,
-                const float aspect,
+                const SceneUniform &sceneData,
                 const std::span<const DrawItem> draws
             ) -> void {
-                sceneUniform_.UploadValue(SceneUniform::From(scene, aspect));
+                sceneUniform_.UploadValue(sceneData);
                 UploadLights(points_, pointData_, scene.pointLights, 1);
                 UploadLights(spots_, spotData_, scene.spotLights, 2);
                 UploadModels(draws);
@@ -195,6 +221,12 @@ namespace cg {
                     },
                     VkDescriptorSetLayoutBinding{
                         2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr
+                    },
+                    VkDescriptorSetLayoutBinding{
+                        3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr
+                    },
+                    VkDescriptorSetLayoutBinding{
+                        4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr
                     }
                 };
                 return MakeDescriptorLayout(device, bindings);
@@ -241,7 +273,7 @@ namespace cg {
                     VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
                     VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2},
                     VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, count},
-                    VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, count * 3}
+                    VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, count * 3 + 2}
                 };
                 const VkDescriptorPoolCreateInfo poolInfo{
                     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -300,15 +332,7 @@ namespace cg {
                             sampler_.Get(), LoadTexture(uploads, path, formats[map]),
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                         };
-                        const VkWriteDescriptorSet write{
-                            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                            .dstSet = materialSets_[i],
-                            .dstBinding = map + 1,
-                            .descriptorCount = 1,
-                            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                            .pImageInfo = &image,
-                        };
-                        vkUpdateDescriptorSets(context_.device, 1, &write, 0, nullptr);
+                        WriteImageDescriptor(context_.device, materialSets_[i], map + 1, image);
                     }
                 }
             }
@@ -384,10 +408,23 @@ namespace cg {
         auto CreatePipeline(
             const graphics::internal::Context &context,
             const VkPipelineLayout layout,
+            const PipelineKind kind,
             const ShaderModule &vertex,
-            const ShaderModule &fragment,
-            const VkPrimitiveTopology topology
+            const ShaderModule *fragment,
+            const VkFormat shadowDepthFormat = VK_FORMAT_UNDEFINED
         ) -> Pipeline {
+            const bool shadow = kind == PipelineKind::Shadow;
+            const bool lines = kind == PipelineKind::Lines;
+            const bool twoSided = kind == PipelineKind::TwoSidedSurface || lines;
+            const auto topology = lines ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+            if (!shadow && fragment == nullptr) {
+                throw std::invalid_argument{"A scene pipeline requires a fragment shader"};
+            }
+            if (shadow && shadowDepthFormat == VK_FORMAT_UNDEFINED) {
+                throw std::invalid_argument{"A shadow pipeline requires a depth format"};
+            }
+
             const std::array stages{
                 VkPipelineShaderStageCreateInfo{
                     .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -398,7 +435,7 @@ namespace cg {
                 VkPipelineShaderStageCreateInfo{
                     .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                     .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-                    .module = fragment.Get(),
+                    .module = fragment ? fragment->Get() : VK_NULL_HANDLE,
                     .pName = "main"
                 },
             };
@@ -432,7 +469,7 @@ namespace cg {
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
                 .vertexBindingDescriptionCount = 1,
                 .pVertexBindingDescriptions = &binding,
-                .vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attributes.size()),
+                .vertexAttributeDescriptionCount = shadow ? 1u : static_cast<std::uint32_t>(attributes.size()),
                 .pVertexAttributeDescriptions = attributes.data(),
             };
             const VkPipelineInputAssemblyStateCreateInfo assembly{
@@ -447,10 +484,9 @@ namespace cg {
             const VkPipelineRasterizationStateCreateInfo rasterizer{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
                 .polygonMode = VK_POLYGON_MODE_FILL,
-                .cullMode = static_cast<VkCullModeFlags>(
-                    topology == VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE
-                ),
+                .cullMode = static_cast<VkCullModeFlags>(twoSided ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT),
                 .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+                .depthBiasEnable = shadow ? VK_TRUE : VK_FALSE,
                 .lineWidth = 1.0f,
             };
             const VkPipelineMultisampleStateCreateInfo multisampling{
@@ -460,8 +496,8 @@ namespace cg {
             const VkPipelineDepthStencilStateCreateInfo depth{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
                 .depthTestEnable = VK_TRUE,
-                .depthWriteEnable = topology == VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST ? VK_TRUE : VK_FALSE,
-                .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+                .depthWriteEnable = lines ? VK_FALSE : VK_TRUE,
+                .depthCompareOp = shadow ? VK_COMPARE_OP_LESS : VK_COMPARE_OP_LESS_OR_EQUAL,
             };
             constexpr VkPipelineColorBlendAttachmentState attachment{
                 .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
@@ -469,18 +505,24 @@ namespace cg {
             };
             const VkPipelineColorBlendStateCreateInfo blend{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-                .attachmentCount = 1,
-                .pAttachments = &attachment,
+                .attachmentCount = shadow ? 0u : 1u,
+                .pAttachments = shadow ? nullptr : &attachment,
             };
-            constexpr std::array dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+            constexpr std::array dynamicStates{
+                VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS
+            };
             const VkPipelineDynamicStateCreateInfo dynamic{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-                .dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size()),
+                .dynamicStateCount = shadow ? 3u : 2u,
                 .pDynamicStates = dynamicStates.data(),
+            };
+            const VkPipelineRenderingCreateInfo rendering{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO, .depthAttachmentFormat = shadowDepthFormat
             };
             const VkGraphicsPipelineCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-                .stageCount = static_cast<std::uint32_t>(stages.size()),
+                .pNext = shadow ? &rendering : nullptr,
+                .stageCount = shadow ? 1u : static_cast<std::uint32_t>(stages.size()),
                 .pStages = stages.data(),
                 .pVertexInputState = &vertexInput,
                 .pInputAssemblyState = &assembly,
@@ -491,7 +533,7 @@ namespace cg {
                 .pColorBlendState = &blend,
                 .pDynamicState = &dynamic,
                 .layout = layout,
-                .renderPass = context.render_pass,
+                .renderPass = shadow ? VK_NULL_HANDLE : context.render_pass,
                 .subpass = 0,
             };
 
@@ -514,32 +556,46 @@ namespace cg {
         )
             : context_{context},
               uploads_{context},
-              resources_{uploads_, std::filesystem::path{CG_ASSET_DIR}},
+              directionalShadow_{context},
+              spotShadow_{context},
+              resources_{uploads_, directionalShadow_, spotShadow_, std::filesystem::path{CG_ASSET_DIR}},
               cube_{uploads_, MeshFactory::Cube()},
+              plane_{uploads_, MeshFactory::Plane()},
               cone_{uploads_, MeshFactory::ConeOutline()},
               pipelineLayout_{context.device},
-              solidPipeline_{context.device},
-              linePipeline_{context.device} {
+              surfacePipeline_{context.device},
+              twoSidedPipeline_{context.device},
+              linePipeline_{context.device},
+              shadowPipeline_{context.device} {
             const auto layouts = resources_.Layouts();
-            constexpr VkPushConstantRange samplingRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SamplingPushConstants)};
+            constexpr std::array pushRanges{
+                VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SamplingPushConstants)},
+                VkPushConstantRange{VK_SHADER_STAGE_VERTEX_BIT, ShadowPushOffset, sizeof(ShadowPushConstants)}
+            };
             const VkPipelineLayoutCreateInfo info{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                 .setLayoutCount = static_cast<std::uint32_t>(layouts.size()),
                 .pSetLayouts = layouts.data(),
-                .pushConstantRangeCount = 1,
-                .pPushConstantRanges = &samplingRange,
+                .pushConstantRangeCount = static_cast<std::uint32_t>(pushRanges.size()),
+                .pPushConstantRanges = pushRanges.data(),
             };
             CheckVulkan(
                 vkCreatePipelineLayout(context.device, &info, nullptr, pipelineLayout_.Put()), "vkCreatePipelineLayout"
             );
 
             const std::filesystem::path directory{CG_SHADER_DIR};
-            const ShaderModule vertex{context.device, directory / "shader.vert.spv"};
-            const ShaderModule fragment{context.device, directory / "shader.frag.spv"};
-            solidPipeline_ =
-                CreatePipeline(context, pipelineLayout_.Get(), vertex, fragment, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+            const ShaderModule vertex{context.device, directory / "scene.vert.spv"};
+            const ShaderModule fragment{context.device, directory / "scene.frag.spv"};
+            const ShaderModule shadowVertex{context.device, directory / "shadow.vert.spv"};
+            surfacePipeline_ =
+                CreatePipeline(context, pipelineLayout_.Get(), PipelineKind::Surface, vertex, &fragment);
+            twoSidedPipeline_ =
+                CreatePipeline(context, pipelineLayout_.Get(), PipelineKind::TwoSidedSurface, vertex, &fragment);
             linePipeline_ =
-                CreatePipeline(context, pipelineLayout_.Get(), vertex, fragment, VK_PRIMITIVE_TOPOLOGY_LINE_LIST);
+                CreatePipeline(context, pipelineLayout_.Get(), PipelineKind::Lines, vertex, &fragment);
+            shadowPipeline_ = CreatePipeline(
+                context, pipelineLayout_.Get(), PipelineKind::Shadow, shadowVertex, nullptr, directionalShadow_.Format()
+            );
         }
 
     public:
@@ -555,8 +611,10 @@ namespace cg {
                 throw std::runtime_error{"The graphics backend returned a zero-sized frame"};
             }
             BuildDrawList(scene);
-            resources_.Update(scene, static_cast<float>(extent.width) / static_cast<float>(extent.height), draws_);
-            Record(frame);
+            const float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
+            const auto sceneData = SceneUniform::From(scene, aspect);
+            resources_.Update(scene, sceneData, draws_);
+            Record(frame, scene.shadows, sceneData);
         }
 
         auto PointLightLimit() const noexcept -> std::size_t {
@@ -576,9 +634,10 @@ namespace cg {
             for (const auto &object : scene.objects) {
                 draws_.push_back(DrawItem{
                     .model = ModelUniform::From(object),
-                    .mesh = MeshKind::Cube,
+                    .mesh = object.mesh,
                     .material = object.material.preset,
-                    .sampling = SamplingPushConstants::From(object.material.sampling, scene.TextureTime())
+                    .sampling = SamplingPushConstants::From(object.material.sampling, scene.TextureTime()),
+                    .castsShadow = object.castsShadow
                 });
             }
 
@@ -587,7 +646,11 @@ namespace cg {
 
                 model = glm::scale(model, glm::vec3{0.12f});
 
-                draws_.push_back(DrawItem{.model = ModelUniform::Unlit(model, light.color), .mesh = MeshKind::Cube});
+                draws_.push_back(DrawItem{
+                    .model = ModelUniform::Unlit(model, light.color),
+                    .mesh = MeshKind::Cube,
+                    .castsShadow = false
+                });
             };
 
             if (scene.showLightMarkers) {
@@ -603,15 +666,80 @@ namespace cg {
                 for (const auto &light : scene.spotLights) {
                     draws_.push_back(DrawItem{
                         .model = ModelUniform::Unlit(light.ConeMatrix(scene.coneLength), {1, 1, 1}),
-                        .mesh = MeshKind::ConeOutline
+                        .mesh = MeshKind::ConeOutline,
+                        .castsShadow = false
                     });
                 }
             }
         }
 
+        auto MeshFor(
+            const MeshKind kind
+        ) const -> const GpuMesh & {
+            switch (kind) {
+                case MeshKind::Cube:
+                    return cube_;
+                case MeshKind::Plane:
+                    return plane_;
+                case MeshKind::ConeOutline:
+                    return cone_;
+            }
+
+            throw std::invalid_argument{"Unknown mesh kind"};
+        }
+
+        auto PipelineFor(
+            const MeshKind kind
+        ) const -> VkPipeline {
+            switch (kind) {
+                case MeshKind::Cube:
+                    return surfacePipeline_.Get();
+                case MeshKind::Plane:
+                    return twoSidedPipeline_.Get();
+                case MeshKind::ConeOutline:
+                    return linePipeline_.Get();
+            }
+
+            throw std::invalid_argument{"Unknown mesh kind"};
+        }
+
+        auto RecordShadow(
+            const VkCommandBuffer commands,
+            ShadowMap &map,
+            const glm::mat4 &lightViewProjection,
+            const bool enabled,
+            const ShadowSettings &settings
+        ) -> void {
+            map.Begin(commands);
+
+            if (enabled) {
+                vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_.Get());
+                vkCmdSetDepthBias(commands, settings.depthBias, 0.0f, settings.slopeBias);
+
+                const ShadowPushConstants push{lightViewProjection};
+                vkCmdPushConstants(
+                    commands, pipelineLayout_.Get(), VK_SHADER_STAGE_VERTEX_BIT, ShadowPushOffset, sizeof(push), &push
+                );
+
+                for (std::size_t i = 0; i < draws_.size(); ++i) {
+                    const auto &draw = draws_[i];
+                    if (!draw.castsShadow) {
+                        continue;
+                    }
+
+                    resources_.Bind(commands, pipelineLayout_.Get(), draw.material, i);
+                    MeshFor(draw.mesh).Draw(commands);
+                }
+            }
+
+            map.End(commands);
+        }
+
         auto Record(
-            const graphics::internal::FrameData &frame
-        ) const -> void {
+            const graphics::internal::FrameData &frame,
+            const ShadowSettings &settings,
+            const SceneUniform &sceneData
+        ) -> void {
             const auto commands = frame.command_buffer;
             CheckVulkan(vkResetCommandBuffer(commands, 0), "vkResetCommandBuffer");
             constexpr VkCommandBufferBeginInfo begin{
@@ -619,6 +747,14 @@ namespace cg {
                 .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
             };
             CheckVulkan(vkBeginCommandBuffer(commands, &begin), "vkBeginCommandBuffer");
+
+            RecordShadow(
+                commands, directionalShadow_, sceneData.directionalLightViewProjection,
+                sceneData.directionalShadowEnabled != 0, settings
+            );
+            RecordShadow(
+                commands, spotShadow_, sceneData.spotLightViewProjection, sceneData.spotShadowEnabled != 0, settings
+            );
 
             constexpr std::array clears{
                 VkClearValue{.color = {.float32 = {0.035f, 0.045f, 0.065f, 1.0f}}},
@@ -645,8 +781,7 @@ namespace cg {
             VkPipeline boundPipeline = VK_NULL_HANDLE;
             for (std::size_t i = 0; i < draws_.size(); ++i) {
                 const auto &draw = draws_[i];
-                const bool line = draw.mesh == MeshKind::ConeOutline;
-                const auto pipeline = line ? linePipeline_.Get() : solidPipeline_.Get();
+                const auto pipeline = PipelineFor(draw.mesh);
                 if (pipeline != boundPipeline) {
                     vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                     boundPipeline = pipeline;
@@ -656,7 +791,7 @@ namespace cg {
                     commands, pipelineLayout_.Get(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SamplingPushConstants),
                     &draw.sampling
                 );
-                (line ? cone_ : cube_).Draw(commands);
+                MeshFor(draw.mesh).Draw(commands);
             }
             vkCmdEndRenderPass(commands);
             CheckVulkan(vkEndCommandBuffer(commands), "vkEndCommandBuffer");
@@ -665,12 +800,17 @@ namespace cg {
     private:
         const graphics::internal::Context &context_;
         UploadContext uploads_;
+        ShadowMap directionalShadow_;
+        ShadowMap spotShadow_;
         RenderResources resources_;
         GpuMesh cube_;
+        GpuMesh plane_;
         GpuMesh cone_;
         PipelineLayout pipelineLayout_;
-        Pipeline solidPipeline_;
+        Pipeline surfacePipeline_;
+        Pipeline twoSidedPipeline_;
         Pipeline linePipeline_;
+        Pipeline shadowPipeline_;
         std::vector<DrawItem> draws_;
     };
 

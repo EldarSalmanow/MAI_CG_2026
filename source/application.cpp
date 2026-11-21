@@ -21,7 +21,7 @@ namespace application {
             laboratory = std::make_unique<cg::Application>(graphics::internal::context);
 
             if (auto *window = static_cast<GLFWwindow *>(ImGui::GetMainViewport()->PlatformHandle)) {
-                glfwSetWindowTitle(window, "Computer Graphics - Lab 3");
+                glfwSetWindowTitle(window, "Computer Graphics - Lab 4");
             }
 
             return true;

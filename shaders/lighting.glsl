@@ -1,38 +1,18 @@
 #ifndef CG_LIGHTING_GLSL
 #define CG_LIGHTING_GLSL
 
+#include "scene.glsl"
 #include "material.glsl"
-
-struct PointLight {
-    vec4 position;
-    vec4 radiance;
-};
-
-struct SpotLight {
-    vec4 position;
-    vec4 radiance;
-    vec4 direction;
-    float innerConeCosine;
-    float outerConeCosine;
-    vec2 reserved;
-};
-
-layout(std430, set = 0, binding = 1) readonly buffer PointLights {
-    PointLight values[];
-} pointLights;
-
-layout(std430, set = 0, binding = 2) readonly buffer SpotLights {
-    SpotLight values[];
-} spotLights;
+#include "shadow.glsl"
 
 struct Surface {
-    vec3 position;
-    vec3 normal;
-    vec3 viewDirection;
+    vec3 worldPosition;
+    vec3 worldNormal;
+    vec3 directionToCamera;
 };
 
 struct LightSample {
-    vec3 direction;
+    vec3 directionToLight;
     vec3 radiance;
 };
 
@@ -49,25 +29,25 @@ vec3 blinnPhong(
     Material material,
     LightSample light
 ) {
-    float diffuse = max(dot(surface.normal, light.direction), 0.0);
+    float diffuse = max(dot(surface.worldNormal, light.directionToLight), 0.0);
     if (diffuse <= 0.0) {
         return vec3(0.0);
     }
 
-    vec3 halfway = safeNormalize(light.direction + surface.viewDirection);
-    float specular = pow(max(dot(surface.normal, halfway), 0.0), material.shininess);
+    vec3 halfway = safeNormalize(light.directionToLight + surface.directionToCamera);
+    float specular = pow(max(dot(surface.worldNormal, halfway), 0.0), material.shininess);
 
     return light.radiance * (material.albedo * diffuse + material.specular * specular);
 }
 
 LightSample sampleLocalLight(
-    vec3 offset,
+    vec3 toLight,
     vec3 radiance
 ) {
     const float minimumDistanceSquared = 0.01;
-    float distanceSquared = max(dot(offset, offset), minimumDistanceSquared);
+    float distanceSquared = max(dot(toLight, toLight), minimumDistanceSquared);
 
-    return LightSample(safeNormalize(offset), radiance / distanceSquared);
+    return LightSample(safeNormalize(toLight), radiance / distanceSquared);
 }
 
 float spotlightAttenuation(
@@ -84,34 +64,37 @@ float spotlightAttenuation(
 }
 
 LightSample sampleSpotLight(
-    SpotLight light,
-    vec3 surfacePosition
+    SpotLightData light,
+    vec3 worldPosition
 ) {
-    vec3 offset = light.position.xyz - surfacePosition;
-    float cosine = dot(-safeNormalize(offset), light.direction.xyz);
+    vec3 toLight = light.position.xyz - worldPosition;
+    float cosine = dot(-safeNormalize(toLight), light.direction.xyz);
     float weight = spotlightAttenuation(cosine, light.innerConeCosine, light.outerConeCosine);
 
-    return sampleLocalLight(offset, light.radiance.rgb * weight);
+    return sampleLocalLight(toLight, light.radiance.rgb * weight);
 }
 
 vec3 evaluateLighting(
     Surface surface,
     Material material
 ) {
-    vec3 color = scene.ambient.rgb * material.albedo;
+    vec3 color = scene.ambientRadiance.rgb * material.albedo;
 
-    LightSample directional = LightSample(-scene.lightDirection.xyz, scene.directionalRadiance.rgb);
+    LightSample directional = LightSample(-scene.directionalLightDirection.xyz, scene.directionalLightRadiance.rgb);
+    directional.radiance *= directionalShadowVisibility(surface.worldPosition);
     color += blinnPhong(surface, material, directional);
 
     for (uint i = 0u; i < scene.pointLightCount; ++i) {
-        PointLight light = pointLights.values[i];
-        LightSample incident = sampleLocalLight(light.position.xyz - surface.position, light.radiance.rgb);
+        PointLightData light = pointLights.values[i];
+        LightSample incident = sampleLocalLight(light.position.xyz - surface.worldPosition, light.radiance.rgb);
 
         color += blinnPhong(surface, material, incident);
     }
 
     for (uint i = 0u; i < scene.spotLightCount; ++i) {
-        LightSample incident = sampleSpotLight(spotLights.values[i], surface.position);
+        SpotLightData light = spotLights.values[i];
+        LightSample incident = sampleSpotLight(light, surface.worldPosition);
+        incident.radiance *= spotShadowVisibility(i, surface.worldPosition);
 
         color += blinnPhong(surface, material, incident);
     }

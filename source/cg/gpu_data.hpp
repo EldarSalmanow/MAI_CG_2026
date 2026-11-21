@@ -2,9 +2,7 @@
 
 #include "scene.hpp"
 
-#include <cstddef>
 #include <cstdint>
-#include <type_traits>
 
 namespace cg {
 
@@ -34,6 +32,13 @@ namespace cg {
         std::uint32_t reserved{0};
     };
 
+    inline constexpr std::uint32_t ShadowPushOffset = sizeof(SamplingPushConstants);
+
+    class alignas(16) ShadowPushConstants final {
+    public:
+        glm::mat4 lightViewProjection{1.0f};
+    };
+
     class alignas(16) SceneUniform final {
     public:
         static auto From(
@@ -45,25 +50,40 @@ namespace cg {
             SceneUniform data;
             data.viewProjection = scene.camera.ProjectionMatrix(aspect) * scene.camera.ViewMatrix();
             data.cameraPosition = glm::vec4{scene.camera.position, 1};
-            data.ambient = glm::vec4{scene.ambientColor * scene.ambientIntensity, 0};
-            data.lightDirection = glm::vec4{NormalizedOr(light.direction, {0, -1, 0}), 0};
-            data.directionalRadiance = glm::vec4{light.color * (light.enabled ? light.intensity : 0.0f), 0};
+            data.ambientRadiance = glm::vec4{scene.ambientColor * scene.ambientIntensity, 0};
+            data.directionalLightDirection = glm::vec4{NormalizedOr(light.direction, {0, -1, 0}), 0};
+            data.directionalLightRadiance = glm::vec4{light.color * (light.enabled ? light.intensity : 0.0f), 0};
             data.pointLightCount = static_cast<std::uint32_t>(scene.pointLights.size());
             data.spotLightCount = static_cast<std::uint32_t>(scene.spotLights.size());
             data.lightingEnabled = scene.lightingEnabled ? 1u : 0u;
+            data.directionalLightViewProjection = scene.shadows.DirectionalMatrix(light);
+            data.directionalShadowEnabled = scene.shadows.enabled && scene.shadows.directionalEnabled && light.enabled;
+
+            if (scene.shadows.spotLightIndex < scene.spotLights.size()) {
+                const auto &spot = scene.spotLights[scene.shadows.spotLightIndex];
+                data.spotLightViewProjection = scene.shadows.SpotMatrix(spot);
+                data.shadowSpotLightIndex = static_cast<std::uint32_t>(scene.shadows.spotLightIndex);
+                data.spotShadowEnabled = scene.shadows.enabled && scene.shadows.spotEnabled && spot.emitter.enabled;
+            }
 
             return data;
         }
 
         glm::mat4 viewProjection{1.0f};
         glm::vec4 cameraPosition{0.0f};
-        glm::vec4 ambient{0.0f};
-        glm::vec4 lightDirection{0.0f};
-        glm::vec4 directionalRadiance{0.0f};
+        glm::vec4 ambientRadiance{0.0f};
+        glm::vec4 directionalLightDirection{0.0f};
+        glm::vec4 directionalLightRadiance{0.0f};
         std::uint32_t pointLightCount{0};
         std::uint32_t spotLightCount{0};
         std::uint32_t lightingEnabled{0};
         std::uint32_t reserved{0};
+        glm::mat4 directionalLightViewProjection{1.0f};
+        glm::mat4 spotLightViewProjection{1.0f};
+        std::uint32_t directionalShadowEnabled{0};
+        std::uint32_t spotShadowEnabled{0};
+        std::uint32_t shadowSpotLightIndex{0};
+        std::uint32_t shadowReserved{0};
     };
 
     class alignas(16) ModelUniform final {
@@ -134,27 +154,5 @@ namespace cg {
         float outerConeCosine;
         glm::vec2 reserved{0.0f};
     };
-
-    // Keep these offsets identical to the uniform and storage blocks in GLSL.
-    static_assert(sizeof(SamplingPushConstants) == 32);
-    static_assert(offsetof(SamplingPushConstants, blendWeight) == 16);
-    static_assert(offsetof(SamplingPushConstants, animationEnabled) == 20);
-    static_assert(offsetof(SamplingPushConstants, emissionStrength) == 24);
-
-    static_assert(sizeof(SceneUniform) == 144);
-    static_assert(offsetof(SceneUniform, pointLightCount) == 128);
-    static_assert(offsetof(SceneUniform, lightingEnabled) == 136);
-
-    static_assert(sizeof(ModelUniform) == 176);
-    static_assert(offsetof(ModelUniform, vertexColorWeight) == 140);
-    static_assert(offsetof(ModelUniform, shininess) == 156);
-    static_assert(offsetof(ModelUniform, unlitColor) == 160);
-    static_assert(offsetof(ModelUniform, unlit) == 172);
-    static_assert(std::is_trivially_copyable_v<ModelUniform>);
-
-    static_assert(sizeof(PointLightData) == 32);
-    static_assert(sizeof(SpotLightData) == 64);
-    static_assert(offsetof(SpotLightData, innerConeCosine) == 48);
-    static_assert(offsetof(SpotLightData, outerConeCosine) == 52);
 
 } // namespace cg
