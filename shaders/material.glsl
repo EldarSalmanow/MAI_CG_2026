@@ -1,13 +1,13 @@
 #ifndef CG_MATERIAL_GLSL
 #define CG_MATERIAL_GLSL
 
-#include "scene_interface.glsl"
+#include "scene.glsl"
 
 layout(set = 1, binding = 1) uniform sampler2D albedoMap;
 layout(set = 1, binding = 2) uniform sampler2D specularMap;
 layout(set = 1, binding = 3) uniform sampler2D emissiveMap;
 
-layout(push_constant) uniform SamplingParameters {
+layout(push_constant) uniform SamplingPushConstants {
     vec2 tiling;
     float time;
     float speed;

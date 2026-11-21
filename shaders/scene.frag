@@ -1,6 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
+#include "scene.glsl"
 #include "material.glsl"
 #include "lighting.glsl"
 

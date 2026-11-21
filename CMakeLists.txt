@@ -10,6 +10,7 @@ add_executable(${PROJECT_NAME}
 		source/graphics_internal.cpp
 
 		source/cg/renderer.cpp
+		source/cg/shadow.cpp
 		source/cg/texture.cpp
 )
 
@@ -56,7 +57,7 @@ FetchContent_Declare(
 	GIT_TAG v1.92.9
 )
 
-find_package(Vulkan REQUIRED)
+find_package(Vulkan 1.3 REQUIRED)
 
 set(GLFW_LIBRARY_TYPE STATIC)
 set(GLFW_BUILD_EXAMPLES OFF)
@@ -112,11 +113,13 @@ if(GLSLC_FOUND)
 	# To compile shader file, use compile_shader function with a file name
 	# of a shader inside shaders directory. See example below:
 
-	compile_shader(shader.vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl")
-	compile_shader(shader.frag
-		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene_interface.glsl"
+	compile_shader(scene.vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene.glsl")
+	compile_shader(shadow.vert "${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene.glsl")
+	compile_shader(scene.frag
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/scene.glsl"
 		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/material.glsl"
-		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/lighting.glsl")
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/lighting.glsl"
+		"${CMAKE_CURRENT_SOURCE_DIR}/shaders/shadow.glsl")
 
 	add_custom_target(shaders DEPENDS ${_SHADER_BINARIES})
 	add_dependencies(${PROJECT_NAME} shaders)
